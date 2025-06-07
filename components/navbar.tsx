@@ -5,7 +5,8 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Menu, Plus, ArrowUpDown, BarChart3, Droplets, User } from "lucide-react"
-import { ConnectButton } from "@/components/connect-button"
+// import { ConnectButton } from "@/components/connect-button"
+import ConnectButton from "./ConnectWallet"
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -26,7 +27,7 @@ export function Navbar() {
           <div className="flex items-center">
             <Link href="/" className="flex items-center space-x-2">
               <div className="h-8 w-8 rounded-full bg-gradient-to-r from-green-400 to-blue-500"></div>
-              <span className="text-lg sm:text-xl font-bold text-white">MemePump</span>
+              <span className="text-lg sm:text-xl font-bold text-white">Cosmo Dex</span>
             </Link>
           </div>
 
