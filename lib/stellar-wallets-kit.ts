@@ -15,7 +15,7 @@ import {
   
   const kit = new StellarWalletsKit({
     modules: allowAllModules(),
-    network: process.env.NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE as WalletNetwork,
+    network: "Test SDF Network ; September 2015" as WalletNetwork,
     // StellarWalletsKit forces you to specify a wallet, even if the user didn't
     // select one yet, so we default to Freighter.
     // We'll work around this later in `getPublicKey`.
