@@ -9,6 +9,7 @@ import {
   const SELECTED_WALLET_ID = "selectedWalletId";
   
   function getSelectedWalletId() {
+    if (typeof window === "undefined") return null;
     return localStorage.getItem(SELECTED_WALLET_ID);
   }
   
@@ -30,14 +31,18 @@ import {
   }
   
   export async function setWallet(walletId: string) {
-    localStorage.setItem(SELECTED_WALLET_ID, walletId);
-    kit.setWallet(walletId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(SELECTED_WALLET_ID, walletId);
+      kit.setWallet(walletId);
+    }
   }
   
   export async function disconnect(callback?: () => Promise<void>) {
-    localStorage.removeItem(SELECTED_WALLET_ID);
-    kit.disconnect();
-    if (callback) await callback();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(SELECTED_WALLET_ID);
+      kit.disconnect();
+      if (callback) await callback();
+    }
   }
   
   export async function connect(callback?: () => Promise<void>) {
