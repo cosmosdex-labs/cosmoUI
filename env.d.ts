@@ -1,6 +1,10 @@
-/// <reference types="vite/client" /> 
+/// <reference types="vite/client" />
+
 interface ImportMetaEnv {
-    readonly SOROBAN_NETWORK_PASSPHRASE: string;
-    readonly SOROBAN_RPC_URL: string;
-    readonly SOROBAN_SOURCE_ACCOUNT: string;
-  }
+  readonly PUBLIC_STELLAR_RPC_URL: string
+  readonly PUBLIC_STELLAR_NETWORK_PASSPHRASE: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
