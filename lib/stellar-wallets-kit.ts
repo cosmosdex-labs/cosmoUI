@@ -16,45 +16,59 @@ import {
   const kit = new StellarWalletsKit({
     modules: allowAllModules(),
     network: "Test SDF Network ; September 2015" as WalletNetwork,
-    // StellarWalletsKit forces you to specify a wallet, even if the user didn't
-    // select one yet, so we default to Freighter.
-    // We'll work around this later in `getPublicKey`.
-    selectedWalletId: getSelectedWalletId() ?? FREIGHTER_ID,
+    selectedWalletId: getSelectedWalletId() ?? FREIGHTER_ID
   });
   
   export const signTransaction = kit.signTransaction.bind(kit);
   
   export async function getPublicKey() {
     if (!getSelectedWalletId()) return null;
-    const { address } = await kit.getAddress();
-    return address;
+    try {
+      const { address } = await kit.getAddress();
+      return address;
+    } catch (error) {
+      console.error("Error getting public key:", error);
+      return null;
+    }
   }
   
   export async function setWallet(walletId: string) {
     if (typeof window !== "undefined") {
-      localStorage.setItem(SELECTED_WALLET_ID, walletId);
-      kit.setWallet(walletId);
+      try {
+        localStorage.setItem(SELECTED_WALLET_ID, walletId);
+        await kit.setWallet(walletId);
+      } catch (error) {
+        console.error("Error setting wallet:", error);
+      }
     }
   }
   
   export async function disconnect(callback?: () => Promise<void>) {
     if (typeof window !== "undefined") {
-      localStorage.removeItem(SELECTED_WALLET_ID);
-      kit.disconnect();
-      if (callback) await callback();
+      try {
+        localStorage.removeItem(SELECTED_WALLET_ID);
+        await kit.disconnect();
+        if (callback) await callback();
+      } catch (error) {
+        console.error("Error disconnecting wallet:", error);
+      }
     }
   }
   
   export async function connect(callback?: () => Promise<void>) {
-    await kit.openModal({
-      onWalletSelected: async (option) => {
-        try {
-          await setWallet(option.id);
-          if (callback) await callback();
-        } catch (e) {
-          console.error(e);
-        }
-        return option.id;
-      },
-    });
+    try {
+      await kit.openModal({
+        onWalletSelected: async (option) => {
+          try {
+            await setWallet(option.id);
+            if (callback) await callback();
+          } catch (e) {
+            console.error("Error connecting wallet:", e);
+          }
+          return option.id;
+        },
+      });
+    } catch (error) {
+      console.error("Error opening wallet modal:", error);
+    }
   }
