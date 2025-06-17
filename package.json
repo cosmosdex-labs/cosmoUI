@@ -2,10 +2,13 @@
   "name": "my-v0-project",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "init": "node initialize.js",
     "dev": "yarn run init && next dev",
-    "build": "next build",
+    "build": "yarn workspaces run build && next build",
     "start": "next start",
     "lint": "next lint"
   },
