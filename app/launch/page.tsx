@@ -13,8 +13,11 @@ import { Slider } from "@/components/ui/slider"
 import { Upload, Rocket, DollarSign, Droplets, CheckCircle } from "lucide-react"
 import { getPublicKey, signTransaction } from "@/lib/stellar-wallets-kit"
 import tokenlauncher from "@/contracts/TokenLauncher"
+import poollauncher from "@/contracts/PoolFactory"
 import Image from "next/image"
 import crypto from 'crypto'
+import Link from "next/link"
+import { ExternalLink } from "lucide-react";
 
 export default function LaunchPage() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -46,6 +49,8 @@ export default function LaunchPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [transactionStatus, setTransactionStatus] = useState<string | null>(null)
+  const [tokenaddress, setTokenAddress] = useState<string | null>(null)
+  const [pooladdress, setPoolAddress] = useState<string | null>(null)
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -68,7 +73,7 @@ export default function LaunchPage() {
     }
     tokenlauncher.options.publicKey = publicKey;
     tokenlauncher.options.signTransaction = signTransaction; 
-    let tokenWasmHash = "745f837368a4e473312bcaede20893c3e0074ea52b9403950446f5f46da87fef"
+    let tokenWasmHash = "63671b88b2c1070a1cf9165311237baae76a607bf2791e88e663408588382468"
     try {
       const tx = await tokenlauncher.update_pool_wasm_hash({
         admin_addr: publicKey,
@@ -84,6 +89,34 @@ export default function LaunchPage() {
       setIsProcessing(false);
     }
   }
+
+  const handlePoolWasmHash = async () => {
+    setIsProcessing(true);
+    setTransactionStatus("Updating WASM hash...");
+    const publicKey = await getPublicKey();
+    if (!publicKey) {
+      alert("Please connect your wallet first");
+      return;
+    }
+    poollauncher.options.publicKey = publicKey;
+    poollauncher.options.signTransaction = signTransaction; 
+    let poolWasmHash = "000db6f71d0fe9c1bd1444aaa55086c646b29b90d738cf30f7ff0e669477df0e"
+    try {
+      const tx = await poollauncher.update_pool_wasm_hash({
+        admin_addr: publicKey,
+        new_hash: Buffer.from(poolWasmHash, 'hex')
+      });
+      const { result } = await tx.signAndSend();
+      console.log("tx result", result);
+      setTransactionStatus("WASM hash updated successfully!");
+    } catch (error) {
+      console.error(error);
+      setTransactionStatus("Error updating WASM hash");
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+  
 
   const handleLaunch = async () => {
     setIsProcessing(true);
@@ -110,6 +143,7 @@ export default function LaunchPage() {
       });
       const { result } = await tx.signAndSend();
       console.log("tx result", result);
+      setTokenAddress(result)
       setTransactionStatus("Token launched successfully!");
       setCurrentStep(2);
     } catch (error) {
@@ -129,7 +163,20 @@ export default function LaunchPage() {
       return;
     }
     try {
-      // Add pool creation logic here
+      poollauncher.options.publicKey = publicKey;
+      poollauncher.options.signTransaction = signTransaction;
+      const saltData = `${tokenData.name}${tokenData.symbol}${Date.now()}`;
+      const salt = crypto.createHash('sha256').update(saltData).digest();
+      const tx = await poollauncher.create_pool({
+        token_a: tokenaddress || "",
+        token_b: "CBCBGILLFTNJGIQPARAMCH2DTORDAAL3YXNZKBCSBTTPWIJYTBVXAE3M", //USDT TOKEN MOCK
+        lp_token_name: `POOL-LP`,
+        lp_token_symbol: `PL-LP`,
+        salt
+      });
+      const { result } = await tx.signAndSend();
+      console.log("tx result", result);
+      setPoolAddress(result)
       setTransactionStatus("Pool created successfully!");
       setCurrentStep(3);
     } catch (error) {
@@ -170,6 +217,21 @@ export default function LaunchPage() {
           <p className="text-gray-400 text-lg">
             Create your token, set up a pool, and add liquidity in a few simple steps
           </p>
+          <Button 
+                onClick={handleWasmHash} 
+                className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold py-3"
+                disabled={isProcessing}
+              >
+                 token factory wasm hash
+              </Button>
+
+              <Button 
+                onClick={handlePoolWasmHash} 
+                className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold py-3 mt-4"
+                disabled={isProcessing}
+              >
+                 pool factory wasm hash
+              </Button>
         </div>
 
         {/* Progress Steps */}
@@ -332,7 +394,7 @@ export default function LaunchPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div>
+              {/* <div>
                 <Label>Initial Price (XLM)</Label>
                 <Input
                   type="number"
@@ -340,16 +402,19 @@ export default function LaunchPage() {
                   onChange={(e) => setPoolData({ ...poolData, initialPrice: parseFloat(e.target.value) })}
                   className="bg-gray-800 border-gray-700"
                 />
-              </div>
+              </div> */}
               
               <div>
                 <Label>Slippage Tolerance (%)</Label>
                 <Input
                   type="number"
                   value={poolData.slippageTolerance}
-                  onChange={(e) => setPoolData({ ...poolData, slippageTolerance: parseFloat(e.target.value) })}
-                  className="bg-gray-800 border-gray-700"
+                  disabled={true}
+                  className="bg-gray-700 border-gray-600 text-gray-300 cursor-not-allowed"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Default value: 1%. This setting helps protect against price fluctuations during pool creation.
+                </p>
               </div>
 
               <div>
@@ -357,9 +422,19 @@ export default function LaunchPage() {
                 <Input
                   type="number"
                   value={poolData.fee}
-                  onChange={(e) => setPoolData({ ...poolData, fee: parseFloat(e.target.value) })}
-                  className="bg-gray-800 border-gray-700"
+                  disabled={true}
+                  className="bg-gray-700 border-gray-600 text-gray-300 cursor-not-allowed"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Default value: 0.3%. This is the standard AMM fee that will be applied to all swaps in this pool.
+                </p>
+              </div>
+
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3 mt-4">
+                <p className="text-sm text-blue-300">
+                  💡 <strong>Ready to proceed?</strong> The default settings above are optimized for most use cases. 
+                  You can now create your pool with these recommended values.
+                </p>
               </div>
 
               <Button 
@@ -394,7 +469,15 @@ export default function LaunchPage() {
               </div>
 
               <div>
-                <Label>XLM Amount</Label>
+                <Label className="flex items-center justify-between mb-2">
+                  <h1>USDT Amount</h1>
+                  <div className="flex justify-center">
+                  <Link href="http://localhost:3000/minter" target="_blank" className="text-blue-500 hover:text-blue-600 flex items-center gap-2">
+                    <span>USDT Faucet</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </Link>
+                </div>
+                </Label>
                 <Input
                   type="number"
                   value={liquidityData.xlmAmount}

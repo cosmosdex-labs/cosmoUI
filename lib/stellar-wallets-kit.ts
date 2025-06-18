@@ -1,5 +1,5 @@
 import {
-    allowAllModules,
+    FreighterModule,
     FREIGHTER_ID,
     StellarWalletsKit,
     WalletNetwork,
@@ -14,7 +14,7 @@ import {
   }
   
   const kit = new StellarWalletsKit({
-    modules: allowAllModules(),
+    modules: [new FreighterModule()],
     network: "Test SDF Network ; September 2015" as WalletNetwork,
     selectedWalletId: getSelectedWalletId() ?? FREIGHTER_ID
   });
@@ -57,9 +57,34 @@ import {
   
   export async function connect(callback?: () => Promise<void>) {
     try {
+      // Comprehensive debugging
+      if (typeof window !== "undefined") {
+        console.log("=== FREIGHTER DEBUGGING ===");
+        console.log("1. Window object available:", !!window);
+        console.log("2. Freighter API available:", !!(window as any).freighterApi);
+        console.log("3. Freighter version:", (window as any).freighterApi?.version);
+        console.log("4. Current network:", "Test SDF Network ; September 2015");
+        console.log("5. User agent:", navigator.userAgent);
+        console.log("6. Protocol:", window.location.protocol);
+        console.log("7. Hostname:", window.location.hostname);
+        console.log("8. Kit modules:", kit);
+        console.log("==========================");
+        
+        // Test Freighter API directly
+        if ((window as any).freighterApi) {
+          try {
+            const isConnected = await (window as any).freighterApi.isConnected();
+            console.log("9. Freighter connected:", isConnected);
+          } catch (e) {
+            console.log("9. Freighter connection test failed:", e);
+          }
+        }
+      }
+      
       await kit.openModal({
         onWalletSelected: async (option) => {
           try {
+            console.log("Selected wallet:", option.id);
             await setWallet(option.id);
             if (callback) await callback();
           } catch (e) {
