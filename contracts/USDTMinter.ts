@@ -1,4 +1,4 @@
-import * as Client from '../packages/PoolFactory/dist';
+import * as Client from '../packages/USDTToken/dist';
 import { rpcUrl } from './util';
 
 export default new Client.Client({
