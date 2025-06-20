@@ -14,8 +14,8 @@
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.7.5",
-    "@stellar/stellar-sdk": "^11.1.0",
-    "@stellar/stellar-base": "^11.1.0",
+    "@stellar/stellar-sdk": "^13.3.0",
+    "@stellar/stellar-base": "^13.3.0",
     "@hookform/resolvers": "^3.9.1",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",

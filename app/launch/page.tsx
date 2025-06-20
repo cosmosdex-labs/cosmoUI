@@ -14,10 +14,19 @@ import { Upload, Rocket, DollarSign, Droplets, CheckCircle } from "lucide-react"
 import { getPublicKey, signTransaction } from "@/lib/stellar-wallets-kit"
 import tokenlauncher from "@/contracts/TokenLauncher"
 import poollauncher from "@/contracts/PoolFactory"
+import usdtcontract from "@/contracts/USDTMinter"
 import Image from "next/image"
 import crypto from 'crypto'
 import Link from "next/link"
 import { ExternalLink } from "lucide-react";
+import {
+  contract,
+  Keypair,
+  Networks,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
+
+
 
 export default function LaunchPage() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -51,6 +60,8 @@ export default function LaunchPage() {
   const [transactionStatus, setTransactionStatus] = useState<string | null>(null)
   const [tokenaddress, setTokenAddress] = useState<string | null>(null)
   const [pooladdress, setPoolAddress] = useState<string | null>(null)
+  // const [publicKey, setPublicKey] = useState<string | null>(null);
+
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -196,7 +207,56 @@ export default function LaunchPage() {
       return;
     }
     try {
-      // Add liquidity logic here
+      
+      const poolClient = await contract.Client.from({
+        contractId: pooladdress ?? "",
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        publicKey: publicKey ?? "",
+        signTransaction: async (xdr) => {
+          const tx = TransactionBuilder.fromXDR(xdr, Networks.TESTNET);
+          const keypair = Keypair.fromPublicKey(publicKey);
+          tx.sign(keypair);
+          return { signedTxXdr: tx.toXDR() };
+        },
+      });
+
+      const customTokenClient = await contract.Client.from({
+        contractId: tokenaddress ?? "",
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        publicKey: publicKey ?? "",
+        signTransaction: async (xdr) => {
+          const tx = TransactionBuilder.fromXDR(xdr, Networks.TESTNET);
+          const keypair = Keypair.fromPublicKey(publicKey);
+          tx.sign(keypair);
+          return { signedTxXdr: tx.toXDR() };
+        },
+      });
+
+      //Approve USDT
+      // usdtcontract.options.publicKey = publicKey;
+      // usdtcontract.options.signTransaction = signTransaction;
+      // const tx = await usdtcontract.approve({
+      //   from: publicKey,
+      //   spender: pooladdress ?? "",
+      //   amount: BigInt(liquidityData.xlmAmount),
+      //   expiration_ledger: 1000,
+      // });
+      // const { result } = await tx.signAndSend();
+      // console.log("usdt approve tx result", result);
+
+      //@ts-ignore
+    let poolTx = await poolClient.add_liquidity({
+      caller: publicKey,
+      amount_a: BigInt(liquidityData.tokenAmount),
+      amount_b: BigInt(liquidityData.xlmAmount),
+    })
+    const { result } = await poolTx.signAndSend();
+    console.log("pool add liquidity tx result", result);
+    
+
+      
       setTransactionStatus("Liquidity added successfully!");
       setCurrentStep(4);
     } catch (error) {
