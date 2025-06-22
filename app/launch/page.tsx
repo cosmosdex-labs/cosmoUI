@@ -579,7 +579,7 @@ export default function LaunchPage() {
           <p className="text-gray-400 text-lg">
             Create your token, set up a pool, and add liquidity in a few simple steps
           </p>
-          <Button 
+          {/* <Button 
                 onClick={handleWasmHash} 
                 className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold py-3"
                 disabled={isProcessing}
@@ -593,7 +593,7 @@ export default function LaunchPage() {
                 disabled={isProcessing}
               >
                  pool factory wasm hash
-              </Button>
+              </Button> */}
         </div>
 
         {/* Progress Steps */}
