@@ -34,11 +34,11 @@ if (typeof window !== 'undefined') {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CASJVBTO7HVFNO2X3XZ4RYF2WYG54CM54GXLAJSO2U7M4SF26GPHAAUE",
+    contractId: "CDIRTQW6ZGAO45ZU2YXKJEAVD6C5Z3ZDKO7DMNIZ25VQL2JR7P7PLTNK",
   }
 } as const
 
-export type DataKey = {tag: "Admin", values: void} | {tag: "TokenWasmHash", values: void} | {tag: "DeployedTokens", values: readonly [string, string]};
+export type DataKey = {tag: "Admin", values: void} | {tag: "TokenWasmHash", values: void} | {tag: "DeployedTokens", values: readonly [string, string]} | {tag: "AllDeployedTokens", values: void} | {tag: "TokenMetadata", values: readonly [string]};
 
 export interface Client {
   /**
@@ -86,7 +86,47 @@ export interface Client {
   /**
    * Construct and simulate a create_token transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  create_token: ({token_name, token_symbol, token_decimals, token_supply, token_owner, salt}: {token_name: string, token_symbol: string, token_decimals: u32, token_supply: i128, token_owner: string, salt: Buffer}, options?: {
+  create_token: ({admin_addr, token_name, token_symbol, token_decimals, token_supply, token_owner, token_metadata, salt}: {admin_addr: string, token_name: string, token_symbol: string, token_decimals: u32, token_supply: i128, token_owner: string, token_metadata: string, salt: Buffer}, options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<string>>
+
+  /**
+   * Construct and simulate a get_all_deployed_tokens transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  get_all_deployed_tokens: (options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<Array<string>>>
+
+  /**
+   * Construct and simulate a get_token_metadata transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  get_token_metadata: ({token_addr}: {token_addr: string}, options?: {
     /**
      * The fee to pay for the transaction. Default: BASE_FEE
      */
@@ -123,17 +163,21 @@ export class Client extends ContractClient {
   }
   constructor(public readonly options: ContractClientOptions) {
     super(
-      new ContractSpec([ "AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAAAwAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAANVG9rZW5XYXNtSGFzaAAAAAAAAAEAAAAAAAAADkRlcGxveWVkVG9rZW5zAAAAAAACAAAAEwAAABM=",
+      new ContractSpec([ "AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAABQAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAANVG9rZW5XYXNtSGFzaAAAAAAAAAEAAAAAAAAADkRlcGxveWVkVG9rZW5zAAAAAAACAAAAEwAAABMAAAAAAAAAAAAAABFBbGxEZXBsb3llZFRva2VucwAAAAAAAAEAAAAAAAAADVRva2VuTWV0YWRhdGEAAAAAAAABAAAAEw==",
         "AAAAAAAAAAAAAAANX19jb25zdHJ1Y3RvcgAAAAAAAAEAAAAAAAAABWFkbWluAAAAAAAAEwAAAAA=",
         "AAAAAAAAACxTZXQgdGhlIHBvb2wgY29udHJhY3QgV2FzbSBoYXNoIChhZG1pbiBvbmx5KQAAABV1cGRhdGVfcG9vbF93YXNtX2hhc2gAAAAAAAACAAAAAAAAAAphZG1pbl9hZGRyAAAAAAATAAAAAAAAAAhuZXdfaGFzaAAAA+4AAAAgAAAAAA==",
         "AAAAAAAAAB9HZXQgdGhlIHBvb2wgY29udHJhY3QgV2FzbSBoYXNoAAAAABJnZXRfcG9vbF93YXNtX2hhc2gAAAAAAAAAAAABAAAD7gAAACA=",
-        "AAAAAAAAAAAAAAAMY3JlYXRlX3Rva2VuAAAABgAAAAAAAAAKdG9rZW5fbmFtZQAAAAAAEAAAAAAAAAAMdG9rZW5fc3ltYm9sAAAAEAAAAAAAAAAOdG9rZW5fZGVjaW1hbHMAAAAAAAQAAAAAAAAADHRva2VuX3N1cHBseQAAAAsAAAAAAAAAC3Rva2VuX293bmVyAAAAABMAAAAAAAAABHNhbHQAAAPuAAAAIAAAAAEAAAAT" ]),
+        "AAAAAAAAAAAAAAAMY3JlYXRlX3Rva2VuAAAACAAAAAAAAAAKYWRtaW5fYWRkcgAAAAAAEwAAAAAAAAAKdG9rZW5fbmFtZQAAAAAAEAAAAAAAAAAMdG9rZW5fc3ltYm9sAAAAEAAAAAAAAAAOdG9rZW5fZGVjaW1hbHMAAAAAAAQAAAAAAAAADHRva2VuX3N1cHBseQAAAAsAAAAAAAAAC3Rva2VuX293bmVyAAAAABMAAAAAAAAADnRva2VuX21ldGFkYXRhAAAAAAAQAAAAAAAAAARzYWx0AAAD7gAAACAAAAABAAAAEw==",
+        "AAAAAAAAAAAAAAAXZ2V0X2FsbF9kZXBsb3llZF90b2tlbnMAAAAAAAAAAAEAAAPqAAAAEw==",
+        "AAAAAAAAAAAAAAASZ2V0X3Rva2VuX21ldGFkYXRhAAAAAAABAAAAAAAAAAp0b2tlbl9hZGRyAAAAAAATAAAAAQAAABA=" ]),
       options
     )
   }
   public readonly fromJSON = {
     update_pool_wasm_hash: this.txFromJSON<null>,
         get_pool_wasm_hash: this.txFromJSON<Buffer>,
-        create_token: this.txFromJSON<string>
+        create_token: this.txFromJSON<string>,
+        get_all_deployed_tokens: this.txFromJSON<Array<string>>,
+        get_token_metadata: this.txFromJSON<string>
   }
 }

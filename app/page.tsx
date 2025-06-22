@@ -1,16 +1,51 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { TrendingUp, TrendingDown, Search, Plus, Zap, BarChart3, ArrowUpDown } from "lucide-react"
+import { TrendingUp, TrendingDown, Search, Plus, Zap, BarChart3, ArrowUpDown, Loader2 } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { CandlestickChart } from "@/components/candlestick-chart"
+import { Client as TokenFactoryClient } from "@/packages/TokenLauncher/dist"
+import { CONTRACT_ADDRESSES } from "@/packages/deployment"
+
+// Interface for token metadata from IPFS
+interface TokenMetadata {
+  name: string;
+  symbol: string;
+  description: string;
+  image: string;
+  attributes: {
+    admin_addr: string;
+    decimals: number;
+    total_supply: string;
+    website?: string;
+    twitter?: string;
+    telegram?: string;
+    created_at: string;
+  };
+}
+
+// Interface for display token data
+interface DisplayToken {
+  id: string;
+  name: string;
+  symbol: string;
+  image: string;
+  price: string;
+  change: string;
+  marketCap: string;
+  volume: string;
+  liquidity: string;
+  trending: boolean;
+  description?: string;
+  contractAddress: string;
+}
 
 const mockTokens = [
   {
@@ -90,8 +125,151 @@ const mockTokens = [
 export default function HomePage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [deployedTokens, setDeployedTokens] = useState<string[]>([]);
+  const [realTokens, setRealTokens] = useState<DisplayToken[]>([]);
+  const [isLoadingTokens, setIsLoadingTokens] = useState(false);
+  const [tokensLoaded, setTokensLoaded] = useState(false);
 
-  const filteredTokens = mockTokens.filter(
+  // Generate mock market data for a token
+  const generateMockMarketData = (tokenAddress: string) => {
+    const prices = ["$0.000012", "$0.0045", "$0.000089", "$0.0012", "$0.0067", "$0.000234"];
+    const changes = ["+15.2%", "-3.1%", "+42.7%", "+8.9%", "-12.4%", "+67.8%"];
+    const marketCaps = ["$1.2M", "$890K", "$2.1M", "$456K", "$1.8M", "$3.4M"];
+    const volumes = ["$245K", "$156K", "$567K", "$89K", "$234K", "$789K"];
+    const liquidities = ["$89K", "$67K", "$234K", "$45K", "$123K", "$345K"];
+    
+    // Use token address to generate consistent mock data
+    const hash = tokenAddress.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    
+    const index = Math.abs(hash) % prices.length;
+    
+    return {
+      price: prices[index],
+      change: changes[index],
+      marketCap: marketCaps[index],
+      volume: volumes[index],
+      liquidity: liquidities[index],
+      trending: Math.random() > 0.5, // Random trending status
+    };
+  };
+
+  // Fetch metadata from IPFS URL
+  const fetchMetadataFromIPFS = async (ipfsUrl: string): Promise<TokenMetadata | null> => {
+    try {
+      const response = await fetch(ipfsUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const metadata = await response.json();
+      return metadata;
+    } catch (error) {
+      console.error("Error fetching metadata from IPFS:", error);
+      return null;
+    }
+  };
+
+  // Fetch token metadata from contract
+  const fetchTokenMetadata = async (tokenAddress: string): Promise<DisplayToken | null> => {
+    try {
+      const tokenFactoryClient = new TokenFactoryClient({
+        contractId: CONTRACT_ADDRESSES.TokenLauncher,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const metadataResult = await tokenFactoryClient.get_token_metadata({
+        token_addr: tokenAddress
+      });
+
+      let ipfsUrl = "";
+      if (metadataResult && typeof metadataResult === "object" && "result" in metadataResult) {
+        ipfsUrl = metadataResult.result;
+      } else if (typeof metadataResult === "string") {
+        ipfsUrl = metadataResult;
+      }
+
+      if (!ipfsUrl) {
+        console.error("No IPFS URL found for token:", tokenAddress);
+        return null;
+      }
+
+      // Fetch metadata from IPFS
+      const metadata = await fetchMetadataFromIPFS(ipfsUrl);
+      if (!metadata) {
+        return null;
+      }
+
+      // Generate mock market data
+      const marketData = generateMockMarketData(tokenAddress);
+
+      return {
+        id: tokenAddress,
+        name: metadata.name,
+        symbol: metadata.symbol,
+        image: metadata.image,
+        description: metadata.description,
+        contractAddress: tokenAddress,
+        ...marketData,
+      };
+    } catch (error) {
+      console.error("Error fetching token metadata:", error);
+      return null;
+    }
+  };
+
+  const fetchDeployedTokens = async () => {
+    try {
+      setIsLoadingTokens(true);
+      const tokenFactoryClient = new TokenFactoryClient({
+        contractId: CONTRACT_ADDRESSES.TokenLauncher,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const tokens = await tokenFactoryClient.get_all_deployed_tokens();
+      console.log("tokens list", tokens);
+      
+      let tokenAddresses: string[] = [];
+      if (tokens && typeof tokens === "object" && "result" in tokens && Array.isArray(tokens.result)) {
+        tokenAddresses = tokens.result;
+      } else if (Array.isArray(tokens)) {
+        tokenAddresses = tokens;
+      }
+      
+      setDeployedTokens(tokenAddresses);
+      console.log("All deployed tokens:", tokenAddresses);
+
+      // Fetch metadata for each token
+      const tokenPromises = tokenAddresses.map(fetchTokenMetadata);
+      const tokenResults = await Promise.all(tokenPromises);
+      
+      // Filter out null results and set real tokens
+      const validTokens = tokenResults.filter((token): token is DisplayToken => token !== null);
+      setRealTokens(validTokens);
+      setTokensLoaded(true);
+      
+      console.log("Real tokens loaded:", validTokens);
+    } catch (error) {
+      console.error("Failed to fetch deployed tokens:", error);
+    } finally {
+      setIsLoadingTokens(false);
+    }
+  };
+  
+  // Call this function when needed
+  useEffect(() => {
+    fetchDeployedTokens();
+  }, []);
+  
+  // Use real tokens if available, otherwise fall back to mock tokens
+  const displayTokens = tokensLoaded && realTokens.length > 0 ? realTokens : mockTokens;
+  
+  const filteredTokens = displayTokens.filter(
     (token) =>
       token.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       token.symbol.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -149,7 +327,13 @@ export default function HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
           <Card className="bg-gray-900 border-gray-800">
             <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-green-500 mb-2">1,247</div>
+              <div className="text-3xl font-bold text-green-500 mb-2">
+                {isLoadingTokens ? (
+                  <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+                ) : (
+                  deployedTokens.length
+                )}
+              </div>
               <div className="text-gray-400">Tokens Launched</div>
             </CardContent>
           </Card>
@@ -205,86 +389,111 @@ export default function HomePage() {
           </Tabs>
         </div>
 
+        {/* Loading State */}
+        {isLoadingTokens && (
+          <div className="flex justify-center items-center py-12">
+            <div className="text-center">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-green-500" />
+              <p className="text-gray-400">Loading tokens from blockchain...</p>
+            </div>
+          </div>
+        )}
+
         {/* Token Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTokens.map((token) => (
-            <Card
-              key={token.id}
-              className="bg-gray-900 border-gray-800 hover:border-green-500 transition-colors cursor-pointer"
-            >
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Image
-                      src={token.image || "/placeholder.svg"}
-                      alt={token.name}
-                      width={48}
-                      height={48}
-                      className="rounded-full"
-                    />
-                    <div>
-                      <CardTitle className="text-lg">{token.name}</CardTitle>
-                      <p className="text-gray-400 text-sm">{token.symbol}</p>
+        {!isLoadingTokens && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredTokens.map((token) => (
+              <Card
+                key={token.id}
+                className="bg-gray-900 border-gray-800 hover:border-green-500 transition-colors cursor-pointer"
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <Image
+                        src={token.image || "/placeholder.svg"}
+                        alt={token.name}
+                        width={48}
+                        height={48}
+                        className="rounded-full"
+                      />
+                      <div>
+                        <CardTitle className="text-lg">{token.name}</CardTitle>
+                        <p className="text-gray-400 text-sm">{token.symbol}</p>
+                      </div>
+                    </div>
+                    {token.trending && (
+                      <Badge className="bg-green-500 text-black">
+                        <TrendingUp className="h-3 w-3 mr-1" />
+                        Hot
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Price</span>
+                      <span className="font-semibold">{token.price}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">24h Change</span>
+                      <span
+                        className={`font-semibold ${token.change.startsWith("+") ? "text-green-500" : "text-red-500"}`}
+                      >
+                        {token.change.startsWith("+") ? (
+                          <TrendingUp className="inline h-3 w-3 mr-1" />
+                        ) : (
+                          <TrendingDown className="inline h-3 w-3 mr-1" />
+                        )}
+                        {token.change}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Market Cap</span>
+                      <span className="font-semibold">{token.marketCap}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Volume</span>
+                      <span className="font-semibold">{token.volume}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Liquidity</span>
+                      <span className="font-semibold">{token.liquidity}</span>
                     </div>
                   </div>
-                  {token.trending && (
-                    <Badge className="bg-green-500 text-black">
-                      <TrendingUp className="h-3 w-3 mr-1" />
-                      Hot
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Price</span>
-                    <span className="font-semibold">{token.price}</span>
+                  <div className="flex gap-2 mt-4">
+                    <Link href={`/token/${token.id}`} className="flex-1">
+                      <Button variant="outline" size="sm" className="w-full border-gray-700 hover:border-green-500">
+                        <BarChart3 className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
+                    </Link>
+                    <Link href="/swap" className="flex-1">
+                      <Button size="sm" className="w-full bg-green-500 hover:bg-green-600 text-black">
+                        <Zap className="h-4 w-4 mr-1" />
+                        Trade
+                      </Button>
+                    </Link>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">24h Change</span>
-                    <span
-                      className={`font-semibold ${token.change.startsWith("+") ? "text-green-500" : "text-red-500"}`}
-                    >
-                      {token.change.startsWith("+") ? (
-                        <TrendingUp className="inline h-3 w-3 mr-1" />
-                      ) : (
-                        <TrendingDown className="inline h-3 w-3 mr-1" />
-                      )}
-                      {token.change}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Market Cap</span>
-                    <span className="font-semibold">{token.marketCap}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Volume</span>
-                    <span className="font-semibold">{token.volume}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Liquidity</span>
-                    <span className="font-semibold">{token.liquidity}</span>
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-4">
-                  <Link href={`/token/${token.id}`} className="flex-1">
-                    <Button variant="outline" size="sm" className="w-full border-gray-700 hover:border-green-500">
-                      <BarChart3 className="h-4 w-4 mr-1" />
-                      View
-                    </Button>
-                  </Link>
-                  <Link href="/swap" className="flex-1">
-                    <Button size="sm" className="w-full bg-green-500 hover:bg-green-600 text-black">
-                      <Zap className="h-4 w-4 mr-1" />
-                      Trade
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* No Tokens State */}
+        {!isLoadingTokens && filteredTokens.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-400 mb-4">No tokens found matching your search.</p>
+            <Link href="/launch">
+              <Button className="bg-green-500 hover:bg-green-600 text-black">
+                <Plus className="mr-2 h-4 w-4" />
+                Launch Your First Token
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* How It Works Modal */}
@@ -317,7 +526,7 @@ export default function HomePage() {
               className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold"
               onClick={() => setShowHowItWorks(false)}
             >
-              I'm ready to pump
+              I Understand
             </Button>
             <div className="text-center text-xs text-gray-500 space-x-2">
               <span>privacy policy</span>

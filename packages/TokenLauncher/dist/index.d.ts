@@ -7,7 +7,7 @@ export * as rpc from '@stellar/stellar-sdk/rpc';
 export declare const networks: {
     readonly testnet: {
         readonly networkPassphrase: "Test SDF Network ; September 2015";
-        readonly contractId: "CASJVBTO7HVFNO2X3XZ4RYF2WYG54CM54GXLAJSO2U7M4SF26GPHAAUE";
+        readonly contractId: "CDIRTQW6ZGAO45ZU2YXKJEAVD6C5Z3ZDKO7DMNIZ25VQL2JR7P7PLTNK";
     };
 };
 export type DataKey = {
@@ -19,6 +19,12 @@ export type DataKey = {
 } | {
     tag: "DeployedTokens";
     values: readonly [string, string];
+} | {
+    tag: "AllDeployedTokens";
+    values: void;
+} | {
+    tag: "TokenMetadata";
+    values: readonly [string];
 };
 export interface Client {
     /**
@@ -63,13 +69,51 @@ export interface Client {
     /**
      * Construct and simulate a create_token transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
      */
-    create_token: ({ token_name, token_symbol, token_decimals, token_supply, token_owner, salt }: {
+    create_token: ({ admin_addr, token_name, token_symbol, token_decimals, token_supply, token_owner, token_metadata, salt }: {
+        admin_addr: string;
         token_name: string;
         token_symbol: string;
         token_decimals: u32;
         token_supply: i128;
         token_owner: string;
+        token_metadata: string;
         salt: Buffer;
+    }, options?: {
+        /**
+         * The fee to pay for the transaction. Default: BASE_FEE
+         */
+        fee?: number;
+        /**
+         * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+         */
+        timeoutInSeconds?: number;
+        /**
+         * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+         */
+        simulate?: boolean;
+    }) => Promise<AssembledTransaction<string>>;
+    /**
+     * Construct and simulate a get_all_deployed_tokens transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     */
+    get_all_deployed_tokens: (options?: {
+        /**
+         * The fee to pay for the transaction. Default: BASE_FEE
+         */
+        fee?: number;
+        /**
+         * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+         */
+        timeoutInSeconds?: number;
+        /**
+         * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+         */
+        simulate?: boolean;
+    }) => Promise<AssembledTransaction<Array<string>>>;
+    /**
+     * Construct and simulate a get_token_metadata transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     */
+    get_token_metadata: ({ token_addr }: {
+        token_addr: string;
     }, options?: {
         /**
          * The fee to pay for the transaction. Default: BASE_FEE
@@ -106,5 +150,7 @@ export declare class Client extends ContractClient {
         update_pool_wasm_hash: (json: string) => AssembledTransaction<null>;
         get_pool_wasm_hash: (json: string) => AssembledTransaction<Buffer<ArrayBufferLike>>;
         create_token: (json: string) => AssembledTransaction<string>;
+        get_all_deployed_tokens: (json: string) => AssembledTransaction<string[]>;
+        get_token_metadata: (json: string) => AssembledTransaction<string>;
     };
 }
