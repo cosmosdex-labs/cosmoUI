@@ -38,7 +38,8 @@ const LiquidityModal = ({
   currentStep, 
   steps, 
   isProcessing, 
-  error 
+  error,
+  onRetry
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -46,6 +47,7 @@ const LiquidityModal = ({
   steps: Array<{ id: string; title: string; description: string; status: 'pending' | 'processing' | 'completed' | 'error' }>;
   isProcessing: boolean;
   error: string | null;
+  onRetry: () => void;
 }) => {
   if (!isOpen) return null;
 
@@ -146,12 +148,20 @@ const LiquidityModal = ({
             Step {currentStep} of {steps.length}
           </span>
           {!isProcessing && error && (
-            <Button
-              onClick={onClose}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm"
-            >
-              Close
-            </Button>
+            <div className="flex space-x-2">
+              <Button
+                onClick={onRetry}
+                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm"
+              >
+                Retry
+              </Button>
+              <Button
+                onClick={onClose}
+                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm"
+              >
+                Close
+              </Button>
+            </div>
           )}
           {!isProcessing && !error && steps.every(s => s.status === 'pending') && (
             <Button
@@ -176,9 +186,9 @@ export default function LaunchPage() {
     name: "",
     symbol: "",
     description: "",
-    totalSupply: 1000000,
-    initialLiquidity: 1000,
-    liquidityLockDays: 365,
+    totalSupply: 0,
+    initialLiquidity: 0,
+    liquidityLockDays: 30,
     autoAddLiquidity: true,
     website: "",
     twitter: "",
@@ -221,9 +231,9 @@ export default function LaunchPage() {
       status: 'pending'
     },
     {
-      id: 'approve-usdt',
-      title: 'Approve USDT',
-      description: 'Allow pool to spend your USDT tokens',
+      id: 'approve-usdc',
+      title: 'Approve USDC',
+      description: 'Allow pool to spend your USDC tokens',
       status: 'pending'
     },
     {
@@ -235,9 +245,71 @@ export default function LaunchPage() {
   ]);
   const [liquidityError, setLiquidityError] = useState<string | null>(null);
 
+  // Balance state
+  const [tokenBalance, setTokenBalance] = useState<string>("0");
+  const [usdcBalance, setUsdcBalance] = useState<string>("0");
+  const [isLoadingBalances, setIsLoadingBalances] = useState(false);
+
   React.useEffect(() => {
     getPublicKey().then(setPublicKey);
   }, []);
+
+  // Fetch balances when wallet connects or token address changes
+  React.useEffect(() => {
+    if (publicKey) {
+      fetchBalances();
+    }
+  }, [publicKey, tokenaddress]);
+
+  // Function to fetch token balances
+  const fetchBalances = async () => {
+    if (!publicKey) return;
+    
+    setIsLoadingBalances(true);
+    try {
+      // Fetch USDC balance
+      const usdcClient = new UsdtTokenClient({
+        contractId: CONTRACT_ADDRESSES.USDTToken,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const usdcBalanceResult = await usdcClient.balance({ id: publicKey });
+      let usdcBalanceValue = "0";
+      if (usdcBalanceResult && typeof usdcBalanceResult === "object" && "result" in usdcBalanceResult) {
+        const balance = BigInt(usdcBalanceResult.result || 0);
+        usdcBalanceValue = (Number(balance) / Math.pow(10, 6)).toFixed(2);
+      }
+      setUsdcBalance(usdcBalanceValue);
+
+      // Fetch custom token balance if token address exists
+      if (tokenaddress) {
+        const tokenClient = new UsdtTokenClient({
+          contractId: tokenaddress,
+          rpcUrl: "https://soroban-testnet.stellar.org",
+          networkPassphrase: "Test SDF Network ; September 2015",
+          allowHttp: true,
+        });
+
+        const tokenBalanceResult = await tokenClient.balance({ id: publicKey });
+        let tokenBalanceValue = "0";
+        if (tokenBalanceResult && typeof tokenBalanceResult === "object" && "result" in tokenBalanceResult) {
+          const balance = BigInt(tokenBalanceResult.result || 0);
+          tokenBalanceValue = (Number(balance) / Math.pow(10, 18)).toFixed(2);
+        }
+        setTokenBalance(tokenBalanceValue);
+      } else {
+        setTokenBalance("0");
+      }
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+      setUsdcBalance("0");
+      setTokenBalance("0");
+    } finally {
+      setIsLoadingBalances(false);
+    }
+  };
 
   // Add event listener for starting liquidity process
   React.useEffect(() => {
@@ -251,6 +323,31 @@ export default function LaunchPage() {
       window.removeEventListener('startLiquidityProcess', handleStartLiquidity);
     };
   }, [liquidityData, tokenaddress, pooladdress]); // Add dependencies
+
+  // Function to reset liquidity process for retry
+  const resetLiquidityProcess = () => {
+    setLiquiditySteps([
+      {
+        id: 'approve-custom',
+        title: 'Approve Custom Token',
+        description: 'Allow pool to spend your custom tokens',
+        status: 'pending'
+      },
+      {
+        id: 'approve-usdc',
+        title: 'Approve USDC',
+        description: 'Allow pool to spend your USDC tokens',
+        status: 'pending'
+      },
+      {
+        id: 'add-liquidity',
+        title: 'Add Liquidity',
+        description: 'Add tokens to the liquidity pool',
+        status: 'pending'
+      }
+    ]);
+    setLiquidityError(null);
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -438,6 +535,33 @@ export default function LaunchPage() {
     setIsProcessing(true);
     setLiquidityError(null);
     
+    // Validate amounts to prevent overflow
+    const tokenAmountRaw = BigInt(liquidityData.tokenAmount) * BigInt(10 ** 18);
+    const usdtAmountRaw = BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6);
+    
+    // Check if amounts are reasonable (prevent overflow in sqrt calculation)
+    if (liquidityData.tokenAmount > 1000000000) { // 1 billion tokens max
+      setLiquidityError(`Token amount too large. Please use a smaller amount (max 1 billion ${tokenData.symbol || "tokens"} tokens).`);
+      setIsProcessing(false);
+      return;
+    }
+    
+    if (liquidityData.xlmAmount > 1000000) { // 1 million USDC max
+      setLiquidityError("USDC amount too large. Please use a smaller amount (max 1 million USDC).");
+      setIsProcessing(false);
+      return;
+    }
+    
+    // Check for sqrt calculation overflow
+    const product = tokenAmountRaw * usdtAmountRaw;
+    const maxSafeProduct = BigInt("170141183460469231731687303715884105727"); // Max i128 value (2^127 - 1)
+    
+    if (product > maxSafeProduct) {
+      setLiquidityError("Amounts too large for pool calculation. Please reduce the amounts.");
+      setIsProcessing(false);
+      return;
+    }
+    
     // Reset steps to initial state
     setLiquiditySteps([
       {
@@ -447,9 +571,9 @@ export default function LaunchPage() {
         status: 'pending'
       },
       {
-        id: 'approve-usdt',
-        title: 'Approve USDT',
-        description: 'Allow pool to spend your USDT tokens',
+        id: 'approve-usdc',
+        title: 'Approve USDC',
+        description: 'Allow pool to spend your USDC tokens',
         status: 'pending'
       },
       {
@@ -503,27 +627,27 @@ export default function LaunchPage() {
         step.id === 'approve-custom' ? { ...step, status: 'completed' } : step
       ));
 
-      // Step 2: Approve USDT
+      // Step 2: Approve USDC
       setLiquiditySteps(prev => prev.map(step => 
-        step.id === 'approve-usdt' ? { ...step, status: 'processing' } : step
+        step.id === 'approve-usdc' ? { ...step, status: 'processing' } : step
       ));
 
-      const usdtClient = new UsdtTokenClient({
+      const usdcClient = new UsdtTokenClient({
         ...clientOptions,
         contractId: CONTRACT_ADDRESSES.USDTToken,
       });
 
-      const approveUsdtTx = await usdtClient.approve({
-          from: publicKey,
-          spender: pooladdress ?? "",
+      const approveUsdcTx = await usdcClient.approve({
+        from: publicKey,
+        spender: pooladdress ?? "",
           amount: BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6),
           expiration_ledger: expirationLedger,
       });
-      await approveUsdtTx.signAndSend();
+      await approveUsdcTx.signAndSend();
       
-      // Mark USDT approval as completed
+      // Mark USDC approval as completed
       setLiquiditySteps(prev => prev.map(step => 
-        step.id === 'approve-usdt' ? { ...step, status: 'completed' } : step
+        step.id === 'approve-usdc' ? { ...step, status: 'completed' } : step
       ));
 
       // Step 3: Add Liquidity
@@ -534,6 +658,37 @@ export default function LaunchPage() {
       const poolClient = new PoolClient({
         ...clientOptions,
         contractId: pooladdress ?? "",
+      });
+
+      // Debug: Check current pool state
+      try {
+        const tokenA = await poolClient.get_token_a();
+        const tokenB = await poolClient.get_token_b();
+        const reserves = await poolClient.get_reserves();
+        
+        console.log("Debug - Pool State:", {
+          tokenA: tokenA.result,
+          tokenB: tokenB.result,
+          reserveA: reserves.result[0].toString(),
+          reserveB: reserves.result[1].toString(),
+          expectedTokenA: tokenaddress,
+          expectedTokenB: CONTRACT_ADDRESSES.USDTToken,
+          isFirstLiquidity: reserves.result[0] === BigInt(0) && reserves.result[1] === BigInt(0)
+        });
+      } catch (error) {
+        console.error("Error getting pool state:", error);
+      }
+
+      // Debug: Log the amounts being sent
+      console.log("Debug - Add Liquidity:", {
+        poolAddress: pooladdress,
+        tokenAddress: tokenaddress,
+        usdcAddress: CONTRACT_ADDRESSES.USDTToken,
+        tokenAmount: liquidityData.tokenAmount,
+        usdcAmount: liquidityData.xlmAmount,
+        tokenAmountRaw: (BigInt(liquidityData.tokenAmount) * BigInt(10 ** 18)).toString(),
+        usdcAmountRaw: (BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6)).toString(),
+        caller: publicKey
       });
  
       const addLiquidityTx = await poolClient.add_liquidity({
@@ -551,8 +706,8 @@ export default function LaunchPage() {
       // Success - close modal after a brief delay to show completion
       setTimeout(() => {
         setShowLiquidityModal(false);
-        setTransactionStatus("Liquidity added successfully!");
-        setCurrentStep(4);
+      setTransactionStatus("Liquidity added successfully!");
+      setCurrentStep(4);
       }, 1500);
 
     } catch (error) {
@@ -848,7 +1003,33 @@ export default function LaunchPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <Label>Token Amount</Label>
+                <Label className="flex items-center justify-between mb-2">
+                  <span>Token Amount</span>
+                  <div className="flex items-center space-x-2">
+                    {isLoadingBalances ? (
+                      <div className="flex items-center space-x-1 text-xs text-gray-400">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>Loading...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-1 text-xs">
+                        <span className="text-gray-400">Balance:</span>
+                        <span className="bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full font-medium">
+                          {tokenBalance} {tokenData.symbol || "TOKEN"}
+                        </span>
+                        <button
+                          onClick={fetchBalances}
+                          className="text-gray-400 hover:text-blue-400 transition-colors"
+                          title="Refresh balance"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </Label>
                 <Input
                   type="number"
                   value={liquidityData.tokenAmount}
@@ -859,11 +1040,33 @@ export default function LaunchPage() {
 
               <div>
                 <Label className="flex items-center justify-between mb-2">
-                  <h1>USDT Amount</h1>
-                  <div className="flex justify-center">
-                  <Link href="http://localhost:3000/minter" target="_blank" className="text-blue-500 hover:text-blue-600 flex items-center gap-2">
-                    <span>USDT Faucet</span>
-                    <ExternalLink className="w-4 h-4" />
+                  <span>USDC Amount</span>
+                  <div className="flex items-center space-x-2">
+                    {isLoadingBalances ? (
+                      <div className="flex items-center space-x-1 text-xs text-gray-400">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>Loading...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-1 text-xs">
+                        <span className="text-gray-400">Balance:</span>
+                        <span className="bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-medium">
+                          {usdcBalance} USDC
+                        </span>
+                        <button
+                          onClick={fetchBalances}
+                          className="text-gray-400 hover:text-green-400 transition-colors"
+                          title="Refresh balance"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                    <Link href="http://localhost:3000/minter" target="_blank" className="text-blue-500 hover:text-blue-600 flex items-center gap-1">
+                      <span className="text-xs">Faucet</span>
+                      <ExternalLink className="w-3 h-3" />
                   </Link>
                 </div>
                 </Label>
@@ -946,11 +1149,16 @@ export default function LaunchPage() {
       {showLiquidityModal && (
         <LiquidityModal
           isOpen={showLiquidityModal}
-          onClose={() => setShowLiquidityModal(false)}
+          onClose={() => {
+            setShowLiquidityModal(false);
+            setTransactionStatus(null);
+            setUploadProgress(null);
+          }}
           currentStep={liquiditySteps.findIndex(s => s.status === 'pending') + 1}
           steps={liquiditySteps}
           isProcessing={isProcessing}
           error={liquidityError}
+          onRetry={resetLiquidityProcess}
         />
       )}
     </div>
