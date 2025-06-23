@@ -662,7 +662,7 @@ export default function SwapPage() {
                           </SelectItem>
                         ) : (
                           availableTokens.map((token) => (
-                            <SelectItem key={token.symbol} value={token.symbol}>
+                          <SelectItem key={token.symbol} value={token.symbol}>
                             <div className="flex items-center space-x-2">
                               <Image
                                 src={token.image || "/placeholder.svg"}
@@ -740,7 +740,7 @@ export default function SwapPage() {
                           </SelectItem>
                         ) : (
                           availableTokens.map((token) => (
-                            <SelectItem key={token.symbol} value={token.symbol}>
+                          <SelectItem key={token.symbol} value={token.symbol}>
                             <div className="flex items-center space-x-2">
                               <Image
                                 src={token.image || "/placeholder.svg"}
