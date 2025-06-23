@@ -51,17 +51,17 @@ interface PoolData {
 }
 
 const recentTrades = [
-  { from: "PEPE", to: "USDT", amount: "100,000", value: "$1,200", time: "2m ago", type: "buy" },
-  { from: "USDT", to: "DMAX", amount: "500", value: "$500", time: "5m ago", type: "sell" },
-  { from: "MSHIB", to: "USDT", amount: "25,000", value: "$2,225", time: "8m ago", type: "buy" },
+  { from: "PEPE", to: "USDC", amount: "100,000", value: "$1,200", time: "2m ago", type: "buy" },
+  { from: "USDC", to: "DMAX", amount: "500", value: "$500", time: "5m ago", type: "sell" },
+  { from: "MSHIB", to: "USDC", amount: "25,000", value: "$2,225", time: "8m ago", type: "buy" },
 ]
 
 export default function SwapPage() {
-  const [fromToken, setFromToken] = useState("USDT")
+  const [fromToken, setFromToken] = useState("USDC")
   const [toToken, setToToken] = useState("")
   const [fromAmount, setFromAmount] = useState("")
   const [toAmount, setToAmount] = useState("")
-  const [slippage, setSlippage] = useState("0.5")
+  const [slippage, setSlippage] = useState("2")
   const [availableTokens, setAvailableTokens] = useState<SwapToken[]>([])
   const [isLoadingTokens, setIsLoadingTokens] = useState(false)
   const [isLoadingSwap, setIsLoadingSwap] = useState(false)
@@ -70,6 +70,7 @@ export default function SwapPage() {
   const [publicKey, setPublicKey] = useState<string | null>(null)
   const [tokenBalances, setTokenBalances] = useState<Record<string, string>>({})
   const [isLoadingBalances, setIsLoadingBalances] = useState(false)
+  const [isSwapping, setIsSwapping] = useState(false)
 
   // Initialize wallet connection
   useEffect(() => {
@@ -163,17 +164,17 @@ export default function SwapPage() {
       // Filter out null results
       const validTokens = tokenResults.filter((token): token is SwapToken => token !== null);
 
-      // Add USDT token
-      const usdtToken: SwapToken = {
-        symbol: "USDT",
-        name: "Tether USD",
-        image: "/placeholder.svg?height=32&width=32",
+      // Add USDC token
+      const usdcToken: SwapToken = {
+        symbol: "USDC",
+        name: "USD Coin",
+        image: "/usdc.png",
         contractAddress: CONTRACT_ADDRESSES.USDTToken,
         balance: "0",
         decimals: 6,
       };
 
-      const allTokens = [usdtToken, ...validTokens];
+      const allTokens = [usdcToken, ...validTokens];
       setAvailableTokens(allTokens);
       
       // Set initial toToken if not set
@@ -343,29 +344,15 @@ export default function SwapPage() {
             fromToken: fromToken,
             toToken: toToken,
             fromTokenContract: fromTokenData.contractAddress,
-            toTokenContract: toTokenData.contractAddress
+            toTokenContract: toTokenData.contractAddress,
+            tokenAIsUSDC: currentPool.tokenA === CONTRACT_ADDRESSES.USDTToken,
+            tokenBIsUSDC: currentPool.tokenB === CONTRACT_ADDRESSES.USDTToken,
+            reserveAMapping: currentPool.tokenA === CONTRACT_ADDRESSES.USDTToken ? 'USDC' : 'Meme Token',
+            reserveBMapping: currentPool.tokenB === CONTRACT_ADDRESSES.USDTToken ? 'USDC' : 'Meme Token'
           });
           
-          // Determine which reserve corresponds to which token
-          let reserveIn: bigint;
-          let reserveOut: bigint;
-          let decimalsIn: number;
-          let decimalsOut: number;
-          
-          // Map reserves based on contract addresses (same logic as swap)
-          if (fromTokenData.contractAddress === currentPool.tokenA) {
-            // From token is token A
-            reserveIn = rawReserveA;
-            reserveOut = rawReserveB;
-            decimalsIn = fromTokenData.decimals;
-            decimalsOut = toTokenData.decimals;
-          } else {
-            // From token is token B
-            reserveIn = rawReserveB;
-            reserveOut = rawReserveA;
-            decimalsIn = fromTokenData.decimals;
-            decimalsOut = toTokenData.decimals;
-          }
+          // Use dynamic reserve mapping
+          const { reserveIn, reserveOut, decimalsIn, decimalsOut } = getReserveMapping(fromTokenData, toTokenData, currentPool);
           
           console.log("Debug - Reserve mapping:", {
             reserveIn: reserveIn.toString(),
@@ -373,7 +360,16 @@ export default function SwapPage() {
             decimalsIn,
             decimalsOut,
             fromTokenDecimals: fromTokenData.decimals,
-            toTokenDecimals: toTokenData.decimals
+            toTokenDecimals: toTokenData.decimals,
+            fromToken: fromToken,
+            toToken: toToken,
+            swapDirection: `${fromToken} → ${toToken}`,
+            rawReserveA: rawReserveA.toString(),
+            rawReserveB: rawReserveB.toString(),
+            tokenA: currentPool.tokenA,
+            tokenB: currentPool.tokenB,
+            fromTokenContract: fromTokenData.contractAddress,
+            toTokenContract: toTokenData.contractAddress
           });
           
           // Calculate swap amount out using AMM formula
@@ -386,7 +382,8 @@ export default function SwapPage() {
               amountIn,
               amountInBigInt: amountInBigInt.toString(),
               reserveIn: reserveIn.toString(),
-              reserveOut: reserveOut.toString()
+              reserveOut: reserveOut.toString(),
+              calculation: `${amountIn} ${fromToken} (${decimalsIn} decimals) → ${toToken} (${decimalsOut} decimals)`
             });
             
             // Calculate with 0.3% fee
@@ -403,7 +400,9 @@ export default function SwapPage() {
               amountInWithFee: amountInWithFee.toString(),
               numerator: numerator.toString(),
               denominator: denominator.toString(),
-              amountOut: amountOut.toString()
+              amountOut: amountOut.toString(),
+              fee: fee.toString(),
+              feeDenominator: feeDenominator.toString()
             });
             
             // Convert back to human readable format
@@ -412,11 +411,22 @@ export default function SwapPage() {
             
             console.log("Debug - Final result:", {
               amountOutHuman,
-              result
+              result,
+              swapResult: `${amountIn} ${fromToken} → ${result} ${toToken}`,
+              conversionFactor: Math.pow(10, decimalsOut),
+              amountOutRaw: amountOut.toString()
             });
             
             setToAmount(result);
           } else {
+            console.log("Debug - Invalid inputs:", {
+              amountIn: parseFloat(amount),
+              reserveIn: reserveIn.toString(),
+              reserveOut: reserveOut.toString(),
+              amountInValid: amountIn > 0,
+              reserveInValid: reserveIn > BigInt(0),
+              reserveOutValid: reserveOut > BigInt(0)
+            });
             setToAmount("0");
           }
         }
@@ -600,6 +610,61 @@ export default function SwapPage() {
     }
   }, [publicKey, availableTokens]);
 
+  // Dynamic reserve mapping function
+  const getReserveMapping = (fromTokenData: SwapToken, toTokenData: SwapToken, pool: PoolData): { reserveIn: bigint; reserveOut: bigint; decimalsIn: number; decimalsOut: number } => {
+    // Find which reserve contains the fromToken and which contains the toToken
+    let fromTokenReserve: bigint;
+    let toTokenReserve: bigint;
+    let fromTokenDecimals: number;
+    let toTokenDecimals: number;
+    
+    // Check if reserves are stored in reverse order (reserve A = meme token, reserve B = USDC)
+    const reserveAIsMemeToken = pool.reserves[0] > pool.reserves[1]; // Meme tokens have larger numbers
+    const reserveBIsUSDC = pool.reserves[1] < pool.reserves[0]; // USDC has smaller numbers
+    
+    console.log("Debug - Reserve analysis:", {
+      reserveA: pool.reserves[0].toString(),
+      reserveB: pool.reserves[1].toString(),
+      reserveAIsMemeToken,
+      reserveBIsUSDC,
+      fromTokenIsUSDC: fromTokenData.contractAddress === CONTRACT_ADDRESSES.USDTToken,
+      toTokenIsUSDC: toTokenData.contractAddress === CONTRACT_ADDRESSES.USDTToken
+    });
+    
+    if (fromTokenData.contractAddress === CONTRACT_ADDRESSES.USDTToken) {
+      // From token is USDC - use the smaller reserve (reserve B)
+      fromTokenReserve = pool.reserves[1];
+      toTokenReserve = pool.reserves[0];
+      fromTokenDecimals = fromTokenData.decimals;
+      toTokenDecimals = toTokenData.decimals;
+      console.log("Debug - From token (USDC) using reserve B (smaller reserve)");
+    } else {
+      // From token is meme token - use the larger reserve (reserve A)
+      fromTokenReserve = pool.reserves[0];
+      toTokenReserve = pool.reserves[1];
+      fromTokenDecimals = fromTokenData.decimals;
+      toTokenDecimals = toTokenData.decimals;
+      console.log("Debug - From token (meme) using reserve A (larger reserve)");
+    }
+    
+    // Set the mapping for the swap calculation
+    const reserveIn = fromTokenReserve;
+    const reserveOut = toTokenReserve;
+    const decimalsIn = fromTokenDecimals;
+    const decimalsOut = toTokenDecimals;
+    
+    console.log("Debug - Final reserve mapping:", {
+      reserveIn: reserveIn.toString(),
+      reserveOut: reserveOut.toString(),
+      decimalsIn,
+      decimalsOut,
+      fromTokenSymbol: fromTokenData.symbol,
+      toTokenSymbol: toTokenData.symbol
+    });
+    
+    return { reserveIn, reserveOut, decimalsIn, decimalsOut };
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-white py-8">
       <div className="container mx-auto px-4 max-w-6xl">
@@ -610,9 +675,9 @@ export default function SwapPage() {
           <p className="text-gray-400 text-lg">Trade meme tokens with minimal slippage and low fees</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-1 gap-8 max-w-2xl mx-auto">
           {/* Swap Interface */}
-          <div className="lg:col-span-2">
+          <div>
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -794,99 +859,27 @@ export default function SwapPage() {
                       <div className="mt-2 text-xs text-gray-400">
                         <div>Pool Address: {currentPool.poolAddress.slice(0, 8)}...{currentPool.poolAddress.slice(-8)}</div>
                         
-                        {/* Price Calculation */}
-                        <div className="mt-2 p-2 bg-gray-700 rounded">
-                          <div className="font-medium text-white mb-1">Token Price</div>
-                          <div className="flex items-center justify-between">
-                            <span>1 {fromToken} = </span>
-                            <span className="text-green-400 font-medium">
-                              {(() => {
-                                const fromTokenData = availableTokens.find(t => t.symbol === fromToken);
-                                const toTokenData = availableTokens.find(t => t.symbol === toToken);
-                                
-                                if (!fromTokenData || !toTokenData) return "0.00";
-                                
-                                // Get raw reserves and determine which is which
-                                const rawReserveA = currentPool.reserves[0];
-                                const rawReserveB = currentPool.reserves[1];
-                                
-                                console.log("Debug - Price calculation:", {
-                                  rawReserveA: rawReserveA.toString(),
-                                  rawReserveB: rawReserveB.toString(),
-                                  fromToken: fromToken,
-                                  toToken: toToken,
-                                  fromTokenDecimals: fromTokenData.decimals,
-                                  toTokenDecimals: toTokenData.decimals
-                                });
-                                
-                                // Determine which reserve corresponds to which token
-                                let reserveIn: bigint;
-                                let reserveOut: bigint;
-                                let decimalsIn: number;
-                                let decimalsOut: number;
-                                
-                                // Map reserves based on contract addresses (same logic as swap)
-                                if (fromTokenData.contractAddress === currentPool.tokenA) {
-                                  // From token is token A
-                                  reserveIn = rawReserveA;
-                                  reserveOut = rawReserveB;
-                                  decimalsIn = fromTokenData.decimals;
-                                  decimalsOut = toTokenData.decimals;
-                                } else {
-                                  // From token is token B
-                                  reserveIn = rawReserveB;
-                                  reserveOut = rawReserveA;
-                                  decimalsIn = fromTokenData.decimals;
-                                  decimalsOut = toTokenData.decimals;
-                                }
-                                
-                                // Calculate price: reserveOut / reserveIn (how much output per 1 input)
-                                const reserveInHuman = Number(reserveIn) / Math.pow(10, decimalsIn);
-                                const reserveOutHuman = Number(reserveOut) / Math.pow(10, decimalsOut);
-                                const price = reserveOutHuman / reserveInHuman;
-                                
-                                console.log("Debug - Price calculation result:", {
-                                  reserveInHuman,
-                                  reserveOutHuman,
-                                  price
-                                });
-                                
-                                // Format price with 18 decimal precision without scientific notation
-                                const priceWith18Decimals = price * Math.pow(10, 18);
-                                
-                                // Convert to string without scientific notation
-                                if (priceWith18Decimals >= 1e21) {
-                                  // For very large numbers, use toLocaleString to avoid scientific notation
-                                  return priceWith18Decimals.toLocaleString('fullwide', { useGrouping: false });
-                                } else {
-                                  // For smaller numbers, use toFixed
-                                  return priceWith18Decimals.toFixed(0);
-                                }
-                              })()} {toToken}
-                            </span>
-                          </div>
-                        </div>
                         
-                        <div className="flex items-center space-x-4">
-                          <div className="relative group">
-                            <span>Reserve A: </span>
+                        {/* <div className="flex items-center space-x-4"> */}
+                          {/* <div className="relative group"> */}
+                            {/* <span>Reserve A ({currentPool.tokenA === CONTRACT_ADDRESSES.USDTToken ? 'USDT' : 'Meme Token'}): </span>
                             <span className="cursor-help">
-                              {formatNumberWithTooltip(Number(currentPool.reserves[0]) / Math.pow(10, 6)).display}
+                              {formatNumberWithTooltip(Number(currentPool.reserves[0]) / Math.pow(10, currentPool.tokenA === CONTRACT_ADDRESSES.USDTToken ? 6 : 18)).display}
+                            </span> */}
+                            {/* <div className="absolute bottom-full left-0 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                              {formatNumberWithTooltip(Number(currentPool.reserves[0]) / Math.pow(10, currentPool.tokenA === CONTRACT_ADDRESSES.USDTToken ? 6 : 18)).fullValue}
+                            </div> */}
+                          {/* </div> */}
+                          {/* <div className="relative group"> */}
+                            {/* <span>Reserve B ({currentPool.tokenB === CONTRACT_ADDRESSES.USDTToken ? 'USDT' : 'Meme Token'}): </span>
+                            <span className="cursor-help">
+                              {formatNumberWithTooltip(Number(currentPool.reserves[1]) / Math.pow(10, currentPool.tokenB === CONTRACT_ADDRESSES.USDTToken ? 6 : 18)).display}
                             </span>
                             <div className="absolute bottom-full left-0 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                              {formatNumberWithTooltip(Number(currentPool.reserves[0]) / Math.pow(10, 6)).fullValue}
-                            </div>
-                          </div>
-                          <div className="relative group">
-                            <span>Reserve B: </span>
-                            <span className="cursor-help">
-                              {formatNumberWithTooltip(Number(currentPool.reserves[1]) / Math.pow(10, 6)).display}
-                            </span>
-                            <div className="absolute bottom-full left-0 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                              {formatNumberWithTooltip(Number(currentPool.reserves[1]) / Math.pow(10, 6)).fullValue}
-                            </div>
-                          </div>
-                        </div>
+                              {formatNumberWithTooltip(Number(currentPool.reserves[1]) / Math.pow(10, currentPool.tokenB === CONTRACT_ADDRESSES.USDTToken ? 6 : 18)).fullValue}
+                            </div> */}
+                          {/* </div> */}
+                        {/* </div> */}
                       </div>
                     )}
                   </div>
@@ -898,8 +891,31 @@ export default function SwapPage() {
                     <div className="flex justify-between">
                       <span className="text-gray-400">Rate</span>
                       <span>
-                        1 {fromToken} = {(Number.parseFloat(toAmount) / Number.parseFloat(fromAmount)).toFixed(6)}{" "}
-                        {toToken}
+                        1 {fromToken} = {(() => {
+                          const fromTokenData = availableTokens.find(t => t.symbol === fromToken);
+                          const toTokenData = availableTokens.find(t => t.symbol === toToken);
+                          
+                          if (!fromTokenData || !toTokenData || !currentPool) return "0.00";
+                          
+                          // Calculate rate for exactly 1 unit of fromToken
+                          const { reserveIn, reserveOut, decimalsIn, decimalsOut } = getReserveMapping(fromTokenData, toTokenData, currentPool);
+                          
+                          // Calculate with 0.3% fee for 1 unit
+                          const amountInBigInt = BigInt(Math.pow(10, decimalsIn)); // 1 unit in raw format
+                          const fee = BigInt(30); // 0.3% = 30 basis points
+                          const feeDenominator = BigInt(10000);
+                          const amountInWithFee = (amountInBigInt * (feeDenominator - fee)) / feeDenominator;
+                          
+                          // Constant product formula: (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee)
+                          const numerator = reserveOut * amountInWithFee;
+                          const denominator = reserveIn + amountInWithFee;
+                          const amountOut = numerator / denominator;
+                          
+                          // Convert back to human readable format
+                          const rate = Number(amountOut) / Math.pow(10, decimalsOut);
+                          
+                          return rate.toFixed(6);
+                        })()} {toToken}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -942,7 +958,7 @@ export default function SwapPage() {
           </div>
 
             {/* Recent Trades */}
-          <div>
+          {/* <div>
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -969,7 +985,7 @@ export default function SwapPage() {
                 </div>
               </CardContent>
             </Card>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>
