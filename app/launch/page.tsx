@@ -1064,7 +1064,7 @@ export default function LaunchPage() {
                         </button>
                       </div>
                     )}
-                    <Link href="http://localhost:3000/minter" target="_blank" className="text-blue-500 hover:text-blue-600 flex items-center gap-1">
+                    <Link href="https://cosmo-dex.netlify.app/minter" target="_blank" className="text-blue-500 hover:text-blue-600 flex items-center gap-1">
                       <span className="text-xs">Faucet</span>
                       <ExternalLink className="w-3 h-3" />
                   </Link>
