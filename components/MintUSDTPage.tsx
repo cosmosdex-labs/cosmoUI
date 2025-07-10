@@ -50,14 +50,14 @@ export default function MintUSDTPage() {
   };
 
   return (
-    <div className="flex justify-center items-center min-h-[80vh] bg-gradient-to-br from-gray-900 to-gray-800">
+    <div className="flex justify-center items-center min-h-[80vh]">
       <Card className="w-full max-w-md shadow-2xl border-gray-700 bg-gray-900">
         <CardHeader>
           <CardTitle className="text-2xl font-bold text-green-400 flex items-center gap-2">
-            Mint Test USDT
+            Mint Test USDC
           </CardTitle>
           <p className="text-gray-400 text-sm mt-2">
-            Instantly mint testnet USDT tokens to your connected wallet for development and testing.
+            Instantly mint testnet USDC tokens to your connected wallet for development and testing.
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -90,7 +90,7 @@ export default function MintUSDTPage() {
             className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold py-3"
             disabled={isMinting || !publicKey || amount <= 0}
           >
-            {isMinting ? "Minting..." : `Mint ${amount} USDT`}
+            {isMinting ? "Minting..." : `Mint ${amount} USDC`}
           </Button>
           {status && (
             <div className={`flex items-center gap-2 mt-2 ${status.type === "success" ? "text-green-400" : "text-red-400"}`}>
