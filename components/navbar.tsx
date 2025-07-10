@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Menu, Plus, ArrowUpDown, BarChart3, Droplets, User } from "lucide-react"
+import { Menu, Plus, ArrowUpDown, BarChart3, Droplets, User, Zap } from "lucide-react"
 // import { ConnectButton } from "@/components/connect-button"
 import ConnectButton from "./ConnectWallet"
 
@@ -18,6 +18,7 @@ export function Navbar() {
     { href: "/liquidity", label: "Liquidity", icon: Droplets },
     { href: "/portfolio", label: "Portfolio", icon: User },
     { href: "/analytics", label: "Analytics", icon: BarChart3 },
+    { href: "/minter", label: "Faucet", icon: Zap },
   ]
 
   return (
