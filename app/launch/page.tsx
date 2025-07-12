@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useEffect } from "react"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
-import { Upload, Rocket, DollarSign, Droplets, CheckCircle, X, Loader2, Cloud } from "lucide-react"
+import { Upload, Rocket, DollarSign, Droplets, CheckCircle, X, Loader2, Cloud, Coins } from "lucide-react"
 import { getPublicKey, signTransaction } from "@/lib/stellar-wallets-kit"
 import tokenlauncher from "@/contracts/TokenLauncher"
 import poollauncher from "@/contracts/PoolFactory"
@@ -23,6 +23,7 @@ import Link from "next/link"
 import { ExternalLink } from "lucide-react";
 import * as Stellar from "@stellar/stellar-sdk";
 import { CONTRACT_ADDRESSES } from "@/packages/deployment"
+import { useToast } from "@/hooks/use-toast"
 import {
   contract,
   Keypair,
@@ -205,6 +206,7 @@ export default function LaunchPage() {
     tokenAmount: 0,
     xlmAmount: 0,
     lockDuration: 365,
+    useXlm: false, // New field to choose between USDC and XLM
   })
 
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -215,6 +217,12 @@ export default function LaunchPage() {
   const [pooladdress, setPoolAddress] = useState<string | null>(null)
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [xlmBalance, setXlmBalance] = useState<string>("0")
+  const [usdcBalance, setUsdcBalance] = useState<string>("0")
+  const [tokenBalance, setTokenBalance] = useState<string>("0")
+  const [isLoadingBalances, setIsLoadingBalances] = useState(false)
+
+  const { toast } = useToast()
 
   // Liquidity Modal State
   const [showLiquidityModal, setShowLiquidityModal] = useState(false);
@@ -231,9 +239,9 @@ export default function LaunchPage() {
       status: 'pending'
     },
     {
-      id: 'approve-usdc',
-      title: 'Approve USDC',
-      description: 'Allow pool to spend your USDC tokens',
+      id: 'approve-second-token',
+      title: 'Approve Second Token',
+      description: 'Allow pool to spend your second token',
       status: 'pending'
     },
     {
@@ -245,71 +253,148 @@ export default function LaunchPage() {
   ]);
   const [liquidityError, setLiquidityError] = useState<string | null>(null);
 
-  // Balance state
-  const [tokenBalance, setTokenBalance] = useState<string>("0");
-  const [usdcBalance, setUsdcBalance] = useState<string>("0");
-  const [isLoadingBalances, setIsLoadingBalances] = useState(false);
+  // Update liquidity steps when pool type changes
+  useEffect(() => {
+    setLiquiditySteps([
+      {
+        id: 'approve-custom',
+        title: 'Approve Custom Token',
+        description: 'Allow pool to spend your custom tokens',
+        status: 'pending'
+      },
+      {
+        id: 'approve-second-token',
+        title: liquidityData.useXlm ? 'Prepare XLM' : 'Approve USDC',
+        description: liquidityData.useXlm 
+          ? 'Prepare native XLM for pool (no approval needed)' 
+          : 'Allow pool to spend your USDC tokens',
+        status: 'pending'
+      },
+      {
+        id: 'add-liquidity',
+        title: 'Add Liquidity',
+        description: `Add tokens to the ${liquidityData.useXlm ? 'XLM' : 'USDC'} pool`,
+        status: 'pending'
+      }
+    ]);
+  }, [liquidityData.useXlm]);
 
-  React.useEffect(() => {
-    getPublicKey().then(setPublicKey);
-  }, []);
-
-  // Fetch balances when wallet connects or token address changes
-  React.useEffect(() => {
-    if (publicKey) {
-      fetchBalances();
-    }
-  }, [publicKey, tokenaddress]);
-
-  // Function to fetch token balances
-  const fetchBalances = async () => {
+  // Fetch XLM balance
+  const fetchXlmBalance = async () => {
     if (!publicKey) return;
-    
-    setIsLoadingBalances(true);
+
     try {
-      // Fetch USDC balance
-      const usdcClient = new UsdtTokenClient({
+      const server = new Stellar.Horizon.Server('https://horizon-testnet.stellar.org');
+      const account = await server.loadAccount(publicKey);
+      const xlmBalance = account.balances.find(balance => balance.asset_type === 'native');
+      const balance = xlmBalance ? parseFloat(xlmBalance.balance) : 0;
+      setXlmBalance(balance.toFixed(6));
+    } catch (error) {
+      console.error("Error fetching XLM balance:", error);
+      setXlmBalance("0");
+    }
+  };
+
+  // Fetch USDC balance
+  const fetchUsdcBalance = async () => {
+    if (!publicKey) return;
+
+    try {
+      const tokenClient = new UsdtTokenClient({
         contractId: CONTRACT_ADDRESSES.USDTToken,
         rpcUrl: "https://soroban-testnet.stellar.org",
         networkPassphrase: "Test SDF Network ; September 2015",
         allowHttp: true,
       });
 
-      const usdcBalanceResult = await usdcClient.balance({ id: publicKey });
-      let usdcBalanceValue = "0";
-      if (usdcBalanceResult && typeof usdcBalanceResult === "object" && "result" in usdcBalanceResult) {
-        const balance = BigInt(usdcBalanceResult.result || 0);
-        usdcBalanceValue = (Number(balance) / Math.pow(10, 6)).toFixed(2);
+      const balanceResult = await tokenClient.balance({ id: publicKey });
+      let balance = "0";
+      if (balanceResult && typeof balanceResult === "object" && "result" in balanceResult) {
+        const balanceValue = BigInt(balanceResult.result || 0);
+        balance = (Number(balanceValue) / Math.pow(10, 6)).toFixed(2);
       }
-      setUsdcBalance(usdcBalanceValue);
+      setUsdcBalance(balance);
+    } catch (error) {
+      console.error("Error fetching USDC balance:", error);
+      setUsdcBalance("0");
+    }
+  };
 
-      // Fetch custom token balance if token address exists
-      if (tokenaddress) {
-        const tokenClient = new UsdtTokenClient({
-          contractId: tokenaddress,
-          rpcUrl: "https://soroban-testnet.stellar.org",
-          networkPassphrase: "Test SDF Network ; September 2015",
-          allowHttp: true,
-        });
+  // Fetch custom token balance if token address exists
+  const fetchTokenBalance = async () => {
+    if (!publicKey || !tokenaddress) return;
 
-        const tokenBalanceResult = await tokenClient.balance({ id: publicKey });
-        let tokenBalanceValue = "0";
-        if (tokenBalanceResult && typeof tokenBalanceResult === "object" && "result" in tokenBalanceResult) {
-          const balance = BigInt(tokenBalanceResult.result || 0);
-          tokenBalanceValue = (Number(balance) / Math.pow(10, 18)).toFixed(2);
-        }
-        setTokenBalance(tokenBalanceValue);
-      } else {
-        setTokenBalance("0");
+    try {
+      const tokenClient = new UsdtTokenClient({
+        contractId: tokenaddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const tokenBalanceResult = await tokenClient.balance({ id: publicKey });
+      let tokenBalanceValue = "0";
+      if (tokenBalanceResult && typeof tokenBalanceResult === "object" && "result" in tokenBalanceResult) {
+        const balance = BigInt(tokenBalanceResult.result || 0);
+        tokenBalanceValue = (Number(balance) / Math.pow(10, 18)).toFixed(2);
       }
+      setTokenBalance(tokenBalanceValue);
+    } catch (error) {
+      console.error("Error fetching token balance:", error);
+      setTokenBalance("0");
+    }
+  };
+
+  // Fetch all balances
+  const fetchBalances = async () => {
+    if (!publicKey) return;
+
+    try {
+      setIsLoadingBalances(true);
+      await Promise.all([
+        fetchXlmBalance(),
+        fetchUsdcBalance(),
+        fetchTokenBalance()
+      ]);
     } catch (error) {
       console.error("Error fetching balances:", error);
-      setUsdcBalance("0");
-      setTokenBalance("0");
     } finally {
       setIsLoadingBalances(false);
     }
   };
+
+  // Initialize wallet connection
+  useEffect(() => {
+    getPublicKey().then(setPublicKey);
+  }, []);
+
+  // Fetch balances when public key changes
+  useEffect(() => {
+    if (publicKey) {
+      fetchBalances();
+    }
+  }, [publicKey]);
+
+  // Fetch token balance when token address changes
+  useEffect(() => {
+    if (publicKey && tokenaddress) {
+      fetchTokenBalance();
+    }
+  }, [tokenaddress, publicKey]);
+
+  // Fetch balances when switching between XLM and USDC
+  useEffect(() => {
+    if (publicKey) {
+      fetchBalances();
+    }
+  }, [liquidityData.useXlm]);
+
+  // Fetch balances when entering step 3 (Add Liquidity)
+  useEffect(() => {
+    if (currentStep === 3 && publicKey) {
+      fetchBalances();
+    }
+  }, [currentStep, publicKey]);
 
   // Add event listener for starting liquidity process
   React.useEffect(() => {
@@ -322,7 +407,7 @@ export default function LaunchPage() {
     return () => {
       window.removeEventListener('startLiquidityProcess', handleStartLiquidity);
     };
-  }, [liquidityData, tokenaddress, pooladdress]); // Add dependencies
+  }, [liquidityData, tokenaddress, pooladdress]);
 
   // Function to reset liquidity process for retry
   const resetLiquidityProcess = () => {
@@ -334,15 +419,17 @@ export default function LaunchPage() {
         status: 'pending'
       },
       {
-        id: 'approve-usdc',
-        title: 'Approve USDC',
-        description: 'Allow pool to spend your USDC tokens',
+        id: 'approve-second-token',
+        title: liquidityData.useXlm ? 'Prepare XLM' : 'Approve USDC',
+        description: liquidityData.useXlm 
+          ? 'Prepare native XLM for pool (no approval needed)' 
+          : 'Allow pool to spend your USDC tokens',
         status: 'pending'
       },
       {
         id: 'add-liquidity',
         title: 'Add Liquidity',
-        description: 'Add tokens to the liquidity pool',
+        description: `Add tokens to the ${liquidityData.useXlm ? 'XLM' : 'USDC'} pool`,
         status: 'pending'
       }
     ]);
@@ -355,7 +442,11 @@ export default function LaunchPage() {
       // Validate the file
       const validation = validateImageFile(file);
       if (!validation.valid) {
-        alert(validation.error);
+        toast({
+          title: "Error",
+          description: validation.error,
+          variant: "destructive",
+        });
         return;
       }
 
@@ -421,7 +512,6 @@ export default function LaunchPage() {
       setIsProcessing(false);
     }
   }
-  
 
   const handleLaunch = async () => {
     setIsProcessing(true);
@@ -430,13 +520,21 @@ export default function LaunchPage() {
     
     const publicKey = await getPublicKey();
     if (!publicKey) {
-      alert("Please connect your wallet first");
+      toast({
+        title: "Error",
+        description: "Please connect your wallet first",
+        variant: "destructive",
+      });
       return;
     }
 
     // Check if image is uploaded
     if (!imageFile) {
-      alert("Please upload a token image first");
+      toast({
+        title: "Error",
+        description: "Please upload a token image first",
+        variant: "destructive",
+      });
       setIsProcessing(false);
       setUploadProgress(null);
       return;
@@ -489,10 +587,20 @@ export default function LaunchPage() {
       setTransactionStatus("Token launched successfully!");
       setUploadProgress(null);
       setCurrentStep(2);
+
+      toast({
+        title: "Success",
+        description: "Token launched successfully!",
+      });
     } catch (error) {
       console.error(error);
       setTransactionStatus("Error launching token");
       setUploadProgress(null);
+      toast({
+        title: "Error",
+        description: "Failed to launch token",
+        variant: "destructive",
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -503,7 +611,11 @@ export default function LaunchPage() {
     setTransactionStatus("Creating pool...");
     const publicKey = await getPublicKey();
     if (!publicKey) {
-      alert("Please connect your wallet first");
+      toast({
+        title: "Error",
+        description: "Please connect your wallet first",
+        variant: "destructive",
+      });
       return;
     }
     try {
@@ -511,21 +623,44 @@ export default function LaunchPage() {
       poollauncher.options.signTransaction = signTransaction;
       const saltData = `${tokenData.name}${tokenData.symbol}${Date.now()}`;
       const salt = crypto.createHash('sha256').update(saltData).digest();
+      
+      // Choose the second token based on user preference
+      const secondToken = liquidityData.useXlm 
+        ? "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC" // Native XLM  testnet contract address
+        : CONTRACT_ADDRESSES.USDTToken;
+      
+      console.log("Creating pool with:", {
+        token_a: tokenaddress || "",
+        token_b: secondToken,
+        poolType: liquidityData.useXlm ? 'XLM' : 'USDC',
+        customToken: tokenData.symbol
+      });
+      
       const tx = await poollauncher.create_pool({
         token_a: tokenaddress || "",
-        token_b: CONTRACT_ADDRESSES.USDTToken, //USDT TOKEN MOCK
-        lp_token_name: `POOL-LP`,
-        lp_token_symbol: `PL-LP`,
+        token_b: secondToken,
+        lp_token_name: `${tokenData.symbol}${liquidityData.useXlm ? 'XLM' : 'USDC'} LP`,
+        lp_token_symbol: `${tokenData.symbol}${liquidityData.useXlm ? 'XLM' : 'USDC'}LP`,
         salt
       });
       const { result } = await tx.signAndSend();
       console.log("tx result", result);
       setPoolAddress(result)
-      setTransactionStatus("Pool created successfully!");
+      setTransactionStatus(`Pool created successfully for ${tokenData.symbol}/${liquidityData.useXlm ? 'XLM' : 'USDC'}!`);
       setCurrentStep(3);
+
+      toast({
+        title: "Success",
+        description: `Pool created successfully for ${tokenData.symbol}/${liquidityData.useXlm ? 'XLM' : 'USDC'}!`,
+      });
     } catch (error) {
       console.error(error);
       setTransactionStatus("Error creating pool");
+      toast({
+        title: "Error",
+        description: "Failed to create pool",
+        variant: "destructive",
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -537,7 +672,9 @@ export default function LaunchPage() {
     
     // Validate amounts to prevent overflow
     const tokenAmountRaw = BigInt(liquidityData.tokenAmount) * BigInt(10 ** 18);
-    const usdtAmountRaw = BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6);
+    const secondTokenAmountRaw = liquidityData.useXlm 
+      ? BigInt(liquidityData.xlmAmount) * BigInt(10 ** 7) // XLM has 7 decimals
+      : BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6); // USDC has 6 decimals
     
     // Check if amounts are reasonable (prevent overflow in sqrt calculation)
     if (liquidityData.tokenAmount > 1000000000) { // 1 billion tokens max
@@ -546,14 +683,15 @@ export default function LaunchPage() {
       return;
     }
     
-    if (liquidityData.xlmAmount > 1000000) { // 1 million USDC max
-      setLiquidityError("USDC amount too large. Please use a smaller amount (max 1 million USDC).");
+    const maxSecondTokenAmount = liquidityData.useXlm ? 1000000 : 1000000; // 1 million max
+    if (liquidityData.xlmAmount > maxSecondTokenAmount) {
+      setLiquidityError(`${liquidityData.useXlm ? 'XLM' : 'USDC'} amount too large. Please use a smaller amount (max ${maxSecondTokenAmount.toLocaleString()} ${liquidityData.useXlm ? 'XLM' : 'USDC'}).`);
       setIsProcessing(false);
       return;
     }
     
     // Check for sqrt calculation overflow
-    const product = tokenAmountRaw * usdtAmountRaw;
+    const product = tokenAmountRaw * secondTokenAmountRaw;
     const maxSafeProduct = BigInt("170141183460469231731687303715884105727"); // Max i128 value (2^127 - 1)
     
     if (product > maxSafeProduct) {
@@ -572,8 +710,8 @@ export default function LaunchPage() {
       },
       {
         id: 'approve-usdc',
-        title: 'Approve USDC',
-        description: 'Allow pool to spend your USDC tokens',
+        title: liquidityData.useXlm ? 'Prepare XLM' : 'Approve USDC',
+        description: liquidityData.useXlm ? 'Prepare native XLM for pool' : 'Allow pool to spend your USDC tokens',
         status: 'pending'
       },
       {
@@ -627,27 +765,33 @@ export default function LaunchPage() {
         step.id === 'approve-custom' ? { ...step, status: 'completed' } : step
       ));
 
-      // Step 2: Approve USDC
+      // Step 2: Handle second token (USDC or XLM)
       setLiquiditySteps(prev => prev.map(step => 
-        step.id === 'approve-usdc' ? { ...step, status: 'processing' } : step
+        step.id === 'approve-second-token' ? { ...step, status: 'processing' } : step
       ));
 
-      const usdcClient = new UsdtTokenClient({
-        ...clientOptions,
-        contractId: CONTRACT_ADDRESSES.USDTToken,
-      });
+      if (liquidityData.useXlm) {
+        // For XLM pools, no approval needed - XLM is transferred directly
+        console.log("XLM pool - no approval needed for native XLM");
+      } else {
+        // For USDC pools, approve USDC
+        const usdcClient = new UsdtTokenClient({
+          ...clientOptions,
+          contractId: CONTRACT_ADDRESSES.USDTToken,
+        });
 
-      const approveUsdcTx = await usdcClient.approve({
-        from: publicKey,
-        spender: pooladdress ?? "",
+        const approveUsdcTx = await usdcClient.approve({
+          from: publicKey,
+          spender: pooladdress ?? "",
           amount: BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6),
           expiration_ledger: expirationLedger,
-      });
-      await approveUsdcTx.signAndSend();
+        });
+        await approveUsdcTx.signAndSend();
+      }
       
-      // Mark USDC approval as completed
+      // Mark second token step as completed
       setLiquiditySteps(prev => prev.map(step => 
-        step.id === 'approve-usdc' ? { ...step, status: 'completed' } : step
+        step.id === 'approve-second-token' ? { ...step, status: 'completed' } : step
       ));
 
       // Step 3: Add Liquidity
@@ -672,7 +816,7 @@ export default function LaunchPage() {
           reserveA: reserves.result[0].toString(),
           reserveB: reserves.result[1].toString(),
           expectedTokenA: tokenaddress,
-          expectedTokenB: CONTRACT_ADDRESSES.USDTToken,
+          expectedTokenB: liquidityData.useXlm ? "native" : CONTRACT_ADDRESSES.USDTToken,
           isFirstLiquidity: reserves.result[0] === BigInt(0) && reserves.result[1] === BigInt(0)
         });
       } catch (error) {
@@ -683,18 +827,19 @@ export default function LaunchPage() {
       console.log("Debug - Add Liquidity:", {
         poolAddress: pooladdress,
         tokenAddress: tokenaddress,
-        usdcAddress: CONTRACT_ADDRESSES.USDTToken,
+        secondTokenAddress: liquidityData.useXlm ? "native" : CONTRACT_ADDRESSES.USDTToken,
         tokenAmount: liquidityData.tokenAmount,
-        usdcAmount: liquidityData.xlmAmount,
+        secondTokenAmount: liquidityData.xlmAmount,
         tokenAmountRaw: (BigInt(liquidityData.tokenAmount) * BigInt(10 ** 18)).toString(),
-        usdcAmountRaw: (BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6)).toString(),
+        secondTokenAmountRaw: secondTokenAmountRaw.toString(),
+        useXlm: liquidityData.useXlm,
         caller: publicKey
       });
  
       const addLiquidityTx = await poolClient.add_liquidity({
         caller: publicKey,
         amount_a: BigInt(liquidityData.tokenAmount) * BigInt(10 ** 18),
-        amount_b: BigInt(liquidityData.xlmAmount) * BigInt(10 ** 6),
+        amount_b: secondTokenAmountRaw,
       });
       await addLiquidityTx.signAndSend();
       
@@ -706,9 +851,14 @@ export default function LaunchPage() {
       // Success - close modal after a brief delay to show completion
       setTimeout(() => {
         setShowLiquidityModal(false);
-      setTransactionStatus("Liquidity added successfully!");
-      setCurrentStep(4);
+        setTransactionStatus("Liquidity added successfully!");
+        setCurrentStep(4);
       }, 1500);
+
+      toast({
+        title: "Success",
+        description: `Liquidity added successfully with ${liquidityData.useXlm ? 'native XLM' : 'USDC'} support!`,
+      });
 
     } catch (error) {
       console.error(error);
@@ -719,6 +869,12 @@ export default function LaunchPage() {
       setLiquiditySteps(prev => prev.map(step => 
         step.status === 'processing' ? { ...step, status: 'error' } : step
       ));
+
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -734,7 +890,7 @@ export default function LaunchPage() {
           <p className="text-gray-400 text-lg">
             Create your token, set up a pool, and add liquidity in a few simple steps
           </p>
-          {/* <Button 
+          <Button 
                 onClick={handleWasmHash} 
                 className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold py-3"
                 disabled={isProcessing}
@@ -748,7 +904,7 @@ export default function LaunchPage() {
                 disabled={isProcessing}
               >
                  pool factory wasm hash
-              </Button> */}
+              </Button>
         </div>
 
         {/* Progress Steps */}
@@ -938,16 +1094,47 @@ export default function LaunchPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* <div>
-                <Label>Initial Price (XLM)</Label>
-                <Input
-                  type="number"
-                  value={poolData.initialPrice}
-                  onChange={(e) => setPoolData({ ...poolData, initialPrice: parseFloat(e.target.value) })}
-                  className="bg-gray-800 border-gray-700"
-                />
-              </div> */}
-              
+              {/* Pool Type Selection */}
+              <div>
+                <Label className="flex items-center justify-between mb-2">
+                  <span>Pool Type</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs text-gray-400">Choose the second token for your pool:</span>
+                  </div>
+                </Label>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => setLiquidityData({ ...liquidityData, useXlm: false })}
+                    className={`flex-1 p-3 rounded-lg border-2 transition-all ${
+                      !liquidityData.useXlm 
+                        ? 'border-green-500 bg-green-500/10 text-green-400' 
+                        : 'border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center space-x-2">
+                      <img src="/usdc.png" alt="USDC" className="w-5 h-5 rounded-full" />
+                      <span className="font-medium">USDC Pool</span>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setLiquidityData({ ...liquidityData, useXlm: true })}
+                    className={`flex-1 p-3 rounded-lg border-2 transition-all ${
+                      liquidityData.useXlm 
+                        ? 'border-yellow-500 bg-yellow-500/10 text-yellow-400' 
+                        : 'border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center space-x-2">
+                      <Coins className="w-5 h-5 text-yellow-400" />
+                      <span className="font-medium">XLM Pool</span>
+                    </div>
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  You're creating a {liquidityData.useXlm ? 'XLM' : 'USDC'} pool for {tokenData.symbol || 'your token'}
+                </p>
+              </div>
+
               <div>
                 <Label>Slippage Tolerance (%)</Label>
                 <Input
@@ -976,8 +1163,8 @@ export default function LaunchPage() {
 
               <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3 mt-4">
                 <p className="text-sm text-blue-300">
-                  💡 <strong>Ready to proceed?</strong> The default settings above are optimized for most use cases. 
-                  You can now create your pool with these recommended values.
+                  💡 <strong>Ready to proceed?</strong> You're creating a {liquidityData.useXlm ? 'XLM' : 'USDC'} pool with optimized default settings. 
+                  The pool will be created with {tokenData.symbol || 'your token'}/{liquidityData.useXlm ? 'XLM' : 'USDC'} pair.
                 </p>
               </div>
 
@@ -986,7 +1173,7 @@ export default function LaunchPage() {
                 className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3"
                 disabled={isProcessing}
               >
-                {isProcessing ? "Processing..." : "Create Pool"}
+                {isProcessing ? "Processing..." : `Create ${liquidityData.useXlm ? 'XLM' : 'USDC'} Pool`}
               </Button>
             </CardContent>
           </Card>
@@ -1002,6 +1189,28 @@ export default function LaunchPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Pool Type Display */}
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    {liquidityData.useXlm ? (
+                      <Coins className="w-5 h-5 text-yellow-400" />
+                    ) : (
+                      <img src="/usdc.png" alt="USDC" className="w-5 h-5 rounded-full" />
+                    )}
+                    <span className="text-sm font-medium">
+                      {tokenData.symbol || 'Your Token'}/{liquidityData.useXlm ? 'XLM' : 'USDC'} Pool
+                    </span>
+                  </div>
+                  <span className="text-xs text-blue-400">
+                    Pool Created ✓
+                  </span>
+                </div>
+                <p className="text-xs text-blue-300 mt-1">
+                  Pool address: {pooladdress ? `${pooladdress.slice(0, 8)}...${pooladdress.slice(-8)}` : 'Loading...'}
+                </p>
+              </div>
+
               <div>
                 <Label className="flex items-center justify-between mb-2">
                   <span>Token Amount</span>
@@ -1040,7 +1249,7 @@ export default function LaunchPage() {
 
               <div>
                 <Label className="flex items-center justify-between mb-2">
-                  <span>USDC Amount</span>
+                  <span>{liquidityData.useXlm ? 'XLM' : 'USDC'} Amount</span>
                   <div className="flex items-center space-x-2">
                     {isLoadingBalances ? (
                       <div className="flex items-center space-x-1 text-xs text-gray-400">
@@ -1050,12 +1259,20 @@ export default function LaunchPage() {
                     ) : (
                       <div className="flex items-center space-x-1 text-xs">
                         <span className="text-gray-400">Balance:</span>
-                        <span className="bg-green-500/20 text-green-400 px-2 py-1 rounded-full font-medium">
-                          {usdcBalance} USDC
+                        <span className={`px-2 py-1 rounded-full font-medium ${
+                          liquidityData.useXlm 
+                            ? 'bg-yellow-500/20 text-yellow-400' 
+                            : 'bg-green-500/20 text-green-400'
+                        }`}>
+                          {liquidityData.useXlm ? xlmBalance : usdcBalance} {liquidityData.useXlm ? 'XLM' : 'USDC'}
                         </span>
                         <button
                           onClick={fetchBalances}
-                          className="text-gray-400 hover:text-green-400 transition-colors"
+                          className={`transition-colors ${
+                            liquidityData.useXlm 
+                              ? 'text-gray-400 hover:text-yellow-400' 
+                              : 'text-gray-400 hover:text-green-400'
+                          }`}
                           title="Refresh balance"
                         >
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1064,18 +1281,57 @@ export default function LaunchPage() {
                         </button>
                       </div>
                     )}
-                    <Link href="https://cosmo-dex.netlify.app/minter" target="_blank" className="text-blue-500 hover:text-blue-600 flex items-center gap-1">
-                      <span className="text-xs">Faucet</span>
-                      <ExternalLink className="w-3 h-3" />
-                  </Link>
-                </div>
+                    {!liquidityData.useXlm && (
+                      <Link href="https://cosmo-dex.netlify.app/minter" target="_blank" className="text-blue-500 hover:text-blue-600 flex items-center gap-1">
+                        <span className="text-xs">Faucet</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </Link>
+                    )}
+                  </div>
                 </Label>
                 <Input
                   type="number"
                   value={liquidityData.xlmAmount}
                   onChange={(e) => setLiquidityData({ ...liquidityData, xlmAmount: Number(e.target.value) })}
                   className="bg-gray-800 border-gray-700"
+                  placeholder={`Enter ${liquidityData.useXlm ? 'XLM' : 'USDC'} amount`}
                 />
+              </div>
+
+              {/* Pool Information */}
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Droplets className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm font-medium text-blue-300">Pool Information</span>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Token Pair:</span>
+                    <span className="text-white">
+                      {tokenData.symbol || "TOKEN"} / {liquidityData.useXlm ? "XLM" : "USDC"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Pool Type:</span>
+                    <span className={`font-medium ${
+                      liquidityData.useXlm ? 'text-yellow-400' : 'text-green-400'
+                    }`}>
+                      {liquidityData.useXlm ? 'Native XLM Pool' : 'Standard Pool'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Your Token Amount:</span>
+                    <span className="text-white">
+                      {liquidityData.tokenAmount || 0} {tokenData.symbol || "TOKEN"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">{liquidityData.useXlm ? 'XLM' : 'USDC'} Amount:</span>
+                    <span className="text-white">
+                      {liquidityData.xlmAmount || 0} {liquidityData.useXlm ? 'XLM' : 'USDC'}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -1091,9 +1347,9 @@ export default function LaunchPage() {
               <Button 
                 onClick={() => setShowLiquidityModal(true)} 
                 className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3"
-                disabled={isProcessing}
+                disabled={isProcessing || !liquidityData.tokenAmount || !liquidityData.xlmAmount}
               >
-                {isProcessing ? "Processing..." : "Add Liquidity"}
+                {isProcessing ? "Processing..." : `Add Liquidity with ${liquidityData.useXlm ? 'XLM' : 'USDC'}`}
               </Button>
             </CardContent>
           </Card>

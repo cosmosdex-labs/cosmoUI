@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowUpDown, Settings, TrendingUp, Clock, Loader2, AlertCircle } from "lucide-react"
+import { ArrowUpDown, Settings, TrendingUp, Clock, Loader2, AlertCircle, Coins } from "lucide-react"
 import Image from "next/image"
 import { Client as TokenFactoryClient } from "@/packages/TokenLauncher/dist"
 import { Client as PoolFactoryClient } from "@/packages/PoolFactory/dist"
@@ -13,6 +13,7 @@ import { Client as PoolClient } from "@/packages/Pool/dist"
 import { Client as UsdtTokenClient } from "@/packages/USDTToken/dist"
 import { CONTRACT_ADDRESSES } from "@/packages/deployment"
 import { getPublicKey, signTransaction } from "@/lib/stellar-wallets-kit"
+import { useToast } from "@/hooks/use-toast"
 import * as Stellar from "@stellar/stellar-sdk"
 
 // Interface for token metadata from IPFS
@@ -40,6 +41,7 @@ interface SwapToken {
   contractAddress: string;
   balance: string;
   decimals: number;
+  isNativeXLM?: boolean;
 }
 
 // Interface for pool data
@@ -48,6 +50,15 @@ interface PoolData {
   reserves: [bigint, bigint];
   tokenA: string;
   tokenB: string;
+  isXlmPool?: boolean;
+  xlmTokenIndex?: number;
+}
+
+// Interface for XLM price data
+interface XlmPriceData {
+  price: number;
+  lastUpdated: Date;
+  source: string;
 }
 
 const recentTrades = [
@@ -71,11 +82,102 @@ export default function SwapPage() {
   const [tokenBalances, setTokenBalances] = useState<Record<string, string>>({})
   const [isLoadingBalances, setIsLoadingBalances] = useState(false)
   const [isSwapping, setIsSwapping] = useState(false)
+  const [xlmBalance, setXlmBalance] = useState<string>("0")
+  const [xlmPrice, setXlmPrice] = useState<XlmPriceData | null>(null)
+  const [isLoadingXlmPrice, setIsLoadingXlmPrice] = useState(false)
+
+  const { toast } = useToast()
 
   // Initialize wallet connection
   useEffect(() => {
     getPublicKey().then(setPublicKey);
   }, []);
+
+  // Fetch XLM price from external oracle
+  const fetchXlmPrice = async () => {
+    try {
+      setIsLoadingXlmPrice(true);
+      
+      // Try multiple price sources for redundancy
+      const priceSources = [
+        'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd',
+        'https://api.binance.com/api/v3/ticker/price?symbol=XLMUSDT',
+        'https://api.kraken.com/0/public/Ticker?pair=XXLMZUSD'
+      ];
+
+      let price = 0;
+      let source = '';
+
+      for (const sourceUrl of priceSources) {
+        try {
+          const response = await fetch(sourceUrl);
+          if (response.ok) {
+            const data = await response.json();
+            
+            if (sourceUrl.includes('coingecko')) {
+              price = data.stellar?.usd || 0;
+              source = 'CoinGecko';
+            } else if (sourceUrl.includes('binance')) {
+              price = parseFloat(data.price) || 0;
+              source = 'Binance';
+            } else if (sourceUrl.includes('kraken')) {
+              const pairKey = Object.keys(data.result)[0];
+              price = parseFloat(data.result[pairKey]?.c?.[0]) || 0;
+              source = 'Kraken';
+            }
+
+            if (price > 0) {
+              break;
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching from ${sourceUrl}:`, error);
+          continue;
+        }
+      }
+
+      if (price > 0) {
+        setXlmPrice({
+          price,
+          lastUpdated: new Date(),
+          source
+        });
+      } else {
+        // Fallback to a reasonable default price if all sources fail
+        setXlmPrice({
+          price: 0.12, // Default XLM price
+          lastUpdated: new Date(),
+          source: 'Default'
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching XLM price:", error);
+      // Set default price as fallback
+      setXlmPrice({
+        price: 0.12,
+        lastUpdated: new Date(),
+        source: 'Default'
+      });
+    } finally {
+      setIsLoadingXlmPrice(false);
+    }
+  };
+
+  // Fetch XLM balance
+  const fetchXlmBalance = async () => {
+    if (!publicKey) return;
+
+    try {
+      const server = new Stellar.Horizon.Server('https://horizon-testnet.stellar.org');
+      const account = await server.loadAccount(publicKey);
+      const xlmBalance = account.balances.find(balance => balance.asset_type === 'native');
+      const balance = xlmBalance ? parseFloat(xlmBalance.balance) : 0;
+      setXlmBalance(balance.toFixed(6));
+    } catch (error) {
+      console.error("Error fetching XLM balance:", error);
+      setXlmBalance("0");
+    }
+  };
 
   // Fetch metadata from IPFS URL
   const fetchMetadataFromIPFS = async (ipfsUrl: string): Promise<TokenMetadata | null> => {
@@ -174,7 +276,18 @@ export default function SwapPage() {
         decimals: 6,
       };
 
-      const allTokens = [usdcToken, ...validTokens];
+      // Add XLM token
+      const xlmToken: SwapToken = {
+        symbol: "XLM",
+        name: "Stellar Lumens",
+        image: "/xlm.svg", // Updated to use SVG icon
+        contractAddress: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // Use the correct native XLM contract address
+        balance: "0",
+        decimals: 7,
+        isNativeXLM: true,
+      };
+
+      const allTokens = [usdcToken, xlmToken, ...validTokens];
       setAvailableTokens(allTokens);
       
       // Set initial toToken if not set
@@ -185,6 +298,11 @@ export default function SwapPage() {
       console.log("Available tokens loaded:", allTokens);
     } catch (error) {
       console.error("Failed to fetch available tokens:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load available tokens",
+        variant: "destructive",
+      });
     } finally {
       setIsLoadingTokens(false);
     }
@@ -232,7 +350,7 @@ export default function SwapPage() {
         return null;
       }
 
-      // Get pool reserves
+      // Get pool reserves and check if it's an XLM pool
       const poolClient = new PoolClient({
         contractId: poolAddress,
         rpcUrl: "https://soroban-testnet.stellar.org",
@@ -245,9 +363,38 @@ export default function SwapPage() {
       
       if (reservesResult && typeof reservesResult === "object" && "result" in reservesResult) {
         const result = reservesResult.result;
-        if (Array.isArray(result) && result.length === 2) {
+        if (Array.isArray(result) && result.length >= 2) {
           reserves = [BigInt(result[0]), BigInt(result[1])];
         }
+      } else if (reservesResult && Array.isArray(reservesResult as any) && (reservesResult as any).length >= 2) {
+        reserves = [BigInt((reservesResult as any)[0]), BigInt((reservesResult as any)[1])];
+      } else if (reservesResult && typeof reservesResult === "object" && "0" in reservesResult && "1" in reservesResult) {
+        // Handle tuple-like object
+        reserves = [BigInt(reservesResult[0]), BigInt(reservesResult[1])];
+      }
+
+      // Check if this is an XLM pool
+      let isXlmPool = false;
+      let xlmTokenIndex: number | undefined;
+      
+      try {
+        const isXlmPoolResult = await poolClient.is_xlm_pool();
+        if (isXlmPoolResult && typeof isXlmPoolResult === "object" && "result" in isXlmPoolResult) {
+          isXlmPool = isXlmPoolResult.result || false;
+        } else if (typeof isXlmPoolResult === "boolean") {
+          isXlmPool = isXlmPoolResult;
+        }
+
+        if (isXlmPool) {
+          const xlmTokenIndexResult = await poolClient.get_xlm_token_index();
+          if (xlmTokenIndexResult && typeof xlmTokenIndexResult === "object" && "result" in xlmTokenIndexResult) {
+            xlmTokenIndex = xlmTokenIndexResult.result;
+          } else if (typeof xlmTokenIndexResult === "number") {
+            xlmTokenIndex = xlmTokenIndexResult;
+          }
+        }
+      } catch (error) {
+        console.log("Could not determine if pool is XLM pool:", error);
       }
 
       return {
@@ -255,6 +402,8 @@ export default function SwapPage() {
         reserves,
         tokenA: tokenAAddress,
         tokenB: tokenBAddress,
+        isXlmPool,
+        xlmTokenIndex,
       };
     } catch (error) {
       console.error("Error fetching pool data:", error);
@@ -344,32 +493,106 @@ export default function SwapPage() {
             fromToken: fromToken,
             toToken: toToken,
             fromTokenContract: fromTokenData.contractAddress,
-            toTokenContract: toTokenData.contractAddress,
-            tokenAIsUSDC: currentPool.tokenA === CONTRACT_ADDRESSES.USDTToken,
-            tokenBIsUSDC: currentPool.tokenB === CONTRACT_ADDRESSES.USDTToken,
-            reserveAMapping: currentPool.tokenA === CONTRACT_ADDRESSES.USDTToken ? 'USDC' : 'Meme Token',
-            reserveBMapping: currentPool.tokenB === CONTRACT_ADDRESSES.USDTToken ? 'USDC' : 'Meme Token'
+            toTokenContract: toTokenData.contractAddress
           });
           
-          // Use dynamic reserve mapping
-          const { reserveIn, reserveOut, decimalsIn, decimalsOut } = getReserveMapping(fromTokenData, toTokenData, currentPool);
+          // Determine which reserve corresponds to which token
+          let reserveIn: bigint;
+          let reserveOut: bigint;
+          let decimalsIn: number;
+          let decimalsOut: number;
           
-          console.log("Debug - Reserve mapping:", {
+          // Create a dynamic mapping of token addresses to their reserves
+          const tokenReserveMap = new Map<string, bigint>();
+          tokenReserveMap.set(currentPool.tokenA, rawReserveA);
+          tokenReserveMap.set(currentPool.tokenB, rawReserveB);
+          
+          console.log("Debug - Token to reserve mapping:", {
+            tokenA: currentPool.tokenA,
+            tokenB: currentPool.tokenB,
+            tokenAReserve: rawReserveA.toString(),
+            tokenBReserve: rawReserveB.toString(),
+            fromTokenContract: fromTokenData.contractAddress,
+            toTokenContract: toTokenData.contractAddress,
+            fromToken: fromToken,
+            toToken: toToken,
+            swapDirection: `${fromToken} → ${toToken}`,
+            tokenAMatchesFromToken: currentPool.tokenA === fromTokenData.contractAddress,
+            tokenBMatchesFromToken: currentPool.tokenB === fromTokenData.contractAddress,
+            tokenAMatchesToToken: currentPool.tokenA === toTokenData.contractAddress,
+            tokenBMatchesToToken: currentPool.tokenB === toTokenData.contractAddress
+          });
+          
+          // Identify which reserve corresponds to which token type based on magnitude
+          const reserveAMagnitude = rawReserveA.toString().length;
+          const reserveBMagnitude = rawReserveB.toString().length;
+          
+          // USDC has 6 decimals (smaller magnitude), Custom tokens have 18 decimals (larger magnitude)
+          const reserveAIsUSDC = reserveAMagnitude < reserveBMagnitude;
+          const reserveBIsUSDC = reserveBMagnitude < reserveAMagnitude;
+          
+          console.log("Debug - Reserve type identification:", {
+            reserveAMagnitude,
+            reserveBMagnitude,
+            reserveAIsUSDC,
+            reserveBIsUSDC,
+            fromTokenDecimals: fromTokenData.decimals,
+            toTokenDecimals: toTokenData.decimals
+          });
+          
+          // Map reserves to their correct token types
+          let usdcReserve: bigint;
+          let customTokenReserve: bigint;
+          
+          if (reserveAIsUSDC) {
+            usdcReserve = rawReserveA;
+            customTokenReserve = rawReserveB;
+          } else {
+            usdcReserve = rawReserveB;
+            customTokenReserve = rawReserveA;
+          }
+          
+          // Now map based on the actual tokens being swapped
+          if (fromTokenData.decimals === 6 && toTokenData.decimals === 18) {
+            // USDC → Custom Token
+            reserveIn = usdcReserve;
+            reserveOut = customTokenReserve;
+            decimalsIn = 6;
+            decimalsOut = 18;
+          } else if (fromTokenData.decimals === 18 && toTokenData.decimals === 6) {
+            // Custom Token → USDC
+            reserveIn = customTokenReserve;
+            reserveOut = usdcReserve;
+            decimalsIn = 18;
+            decimalsOut = 6;
+          } else {
+            // Fallback: use direct mapping
+            const fromTokenReserve = tokenReserveMap.get(fromTokenData.contractAddress);
+            const toTokenReserve = tokenReserveMap.get(toTokenData.contractAddress);
+            
+            if (fromTokenReserve !== undefined && toTokenReserve !== undefined) {
+              reserveIn = fromTokenReserve;
+              reserveOut = toTokenReserve;
+              decimalsIn = fromTokenData.decimals;
+              decimalsOut = toTokenData.decimals;
+            } else {
+              // Final fallback
+              reserveIn = rawReserveA;
+              reserveOut = rawReserveB;
+              decimalsIn = fromTokenData.decimals;
+              decimalsOut = toTokenData.decimals;
+            }
+          }
+          
+          console.log("Debug - Final reserve mapping:", {
             reserveIn: reserveIn.toString(),
             reserveOut: reserveOut.toString(),
             decimalsIn,
             decimalsOut,
-            fromTokenDecimals: fromTokenData.decimals,
-            toTokenDecimals: toTokenData.decimals,
             fromToken: fromToken,
             toToken: toToken,
-            swapDirection: `${fromToken} → ${toToken}`,
-            rawReserveA: rawReserveA.toString(),
-            rawReserveB: rawReserveB.toString(),
-            tokenA: currentPool.tokenA,
-            tokenB: currentPool.tokenB,
-            fromTokenContract: fromTokenData.contractAddress,
-            toTokenContract: toTokenData.contractAddress
+            usdcReserve: usdcReserve.toString(),
+            customTokenReserve: customTokenReserve.toString()
           });
           
           // Calculate swap amount out using AMM formula
@@ -448,10 +671,15 @@ export default function SwapPage() {
   };
 
   // Fetch token balance for a specific token
-  const fetchTokenBalance = async (tokenAddress: string, decimals: number): Promise<string> => {
+  const fetchTokenBalance = async (tokenAddress: string, decimals: number, isNativeXLM: boolean = false): Promise<string> => {
     if (!publicKey) return "0";
 
     try {
+      if (isNativeXLM) {
+        // For native XLM, use the stored balance
+        return xlmBalance;
+      }
+
       const tokenClient = new UsdtTokenClient({
         contractId: tokenAddress,
         rpcUrl: "https://soroban-testnet.stellar.org",
@@ -485,9 +713,18 @@ export default function SwapPage() {
 
     try {
       setIsLoadingBalances(true);
+      
+      // Fetch XLM balance first
+      await fetchXlmBalance();
+      
       const balancePromises = availableTokens.map(async (token) => {
-        const balance = await fetchTokenBalance(token.contractAddress, token.decimals);
-        return { symbol: token.symbol, balance };
+        if (token.isNativeXLM) {
+          // For XLM, use the already fetched balance
+          return { symbol: token.symbol, balance: xlmBalance };
+        } else {
+          const balance = await fetchTokenBalance(token.contractAddress, token.decimals, token.isNativeXLM);
+          return { symbol: token.symbol, balance };
+        }
       });
 
       const balanceResults = await Promise.all(balancePromises);
@@ -508,7 +745,44 @@ export default function SwapPage() {
   // Execute swap
   const executeSwap = async () => {
     if (!publicKey || !currentPool || !fromAmount || !toAmount) {
-      setSwapError("Please connect wallet and enter amounts");
+      toast({
+        title: "Error",
+        description: "Please connect wallet and enter amounts",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate swap amounts
+    const fromTokenData = availableTokens.find(t => t.symbol === fromToken);
+    if (!fromTokenData) {
+      toast({
+        title: "Error",
+        description: "From token not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const balance = tokenBalances[fromToken] || "0";
+    const amount = parseFloat(fromAmount);
+    const userBalance = parseFloat(balance);
+
+    if (amount > userBalance) {
+      toast({
+        title: "Error",
+        description: `Insufficient ${fromToken} balance`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (amount <= 0) {
+      toast({
+        title: "Error",
+        description: "Amount must be greater than 0",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -516,54 +790,126 @@ export default function SwapPage() {
       setIsLoadingSwap(true);
       setSwapError(null);
 
-      const fromTokenData = availableTokens.find(t => t.symbol === fromToken);
-      if (!fromTokenData) {
-        throw new Error("From token not found");
-      }
-
       const server = new Stellar.Horizon.Server('https://horizon-testnet.stellar.org');
       const currentLedger = await server.ledgers().order('desc').limit(1).call();
       const expirationLedger = currentLedger.records[0].sequence + 1000;
 
-      // First, approve the pool to spend tokens
-      const tokenClient = new UsdtTokenClient({
-        contractId: fromTokenData.contractAddress,
-        rpcUrl: "https://soroban-testnet.stellar.org",
-        networkPassphrase: "Test SDF Network ; September 2015",
-        publicKey: publicKey,
-        signTransaction: signTransaction,
-        allowHttp: true,
-      });
-
       const amountIn = BigInt(parseFloat(fromAmount) * Math.pow(10, fromTokenData.decimals));
 
-      // Approve pool to spend tokens
-      const approveTx = await tokenClient.approve({
-        from: publicKey,
-        spender: currentPool.poolAddress,
-        amount: amountIn,
-        expiration_ledger: expirationLedger,
-      });
-      await approveTx.signAndSend();
+      // Check if this is an XLM swap
+      if (currentPool.isXlmPool && fromTokenData.isNativeXLM) {
+        // Native XLM swap - no approval needed, XLM is transferred directly
+        const poolClient = new PoolClient({
+          contractId: currentPool.poolAddress,
+          rpcUrl: "https://soroban-testnet.stellar.org",
+          networkPassphrase: "Test SDF Network ; September 2015",
+          publicKey: publicKey,
+          signTransaction: signTransaction,
+          allowHttp: true,
+        });
 
-      // Execute swap
-      const poolClient = new PoolClient({
-        contractId: currentPool.poolAddress,
-        rpcUrl: "https://soroban-testnet.stellar.org",
-        networkPassphrase: "Test SDF Network ; September 2015",
-        publicKey: publicKey,
-        signTransaction: signTransaction,
-        allowHttp: true,
-      });
+        const swapTx = await poolClient.swap({
+          caller: publicKey,
+          input_token: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // Use the correct native XLM contract address
+          amount_in: amountIn,
+        });
+        
+        const result = await swapTx.signAndSend();
+        console.log("XLM swap successful:", result);
 
-      const swapTx = await poolClient.swap({
-        caller: publicKey,
-        input_token: fromTokenData.contractAddress,
-        amount_in: amountIn,
-      });
-      
-      const result = await swapTx.signAndSend();
-      console.log("Swap successful:", result);
+        toast({
+          title: "Swap Successful",
+          description: `Successfully swapped ${fromAmount} ${fromToken} for ${toAmount} ${toToken}`,
+        });
+
+      } else if (currentPool.isXlmPool && toToken === "XLM") {
+        // Swapping to XLM - need approval for input token
+        const tokenClient = new UsdtTokenClient({
+          contractId: fromTokenData.contractAddress,
+          rpcUrl: "https://soroban-testnet.stellar.org",
+          networkPassphrase: "Test SDF Network ; September 2015",
+          publicKey: publicKey,
+          signTransaction: signTransaction,
+          allowHttp: true,
+        });
+
+        // Approve pool to spend tokens
+        const approveTx = await tokenClient.approve({
+          from: publicKey,
+          spender: currentPool.poolAddress,
+          amount: amountIn,
+          expiration_ledger: expirationLedger,
+        });
+        await approveTx.signAndSend();
+
+        // Execute swap to XLM
+        const poolClient = new PoolClient({
+          contractId: currentPool.poolAddress,
+          rpcUrl: "https://soroban-testnet.stellar.org",
+          networkPassphrase: "Test SDF Network ; September 2015",
+          publicKey: publicKey,
+          signTransaction: signTransaction,
+          allowHttp: true,
+        });
+
+        const swapTx = await poolClient.swap({
+          caller: publicKey,
+          input_token: fromTokenData.contractAddress,
+          amount_in: amountIn,
+        });
+        
+        const result = await swapTx.signAndSend();
+        console.log("Swap to XLM successful:", result);
+
+        toast({
+          title: "Swap Successful",
+          description: `Successfully swapped ${fromAmount} ${fromToken} for ${toAmount} ${toToken}`,
+        });
+
+      } else {
+        // Standard token swap - need approval
+        const tokenClient = new UsdtTokenClient({
+          contractId: fromTokenData.contractAddress,
+          rpcUrl: "https://soroban-testnet.stellar.org",
+          networkPassphrase: "Test SDF Network ; September 2015",
+          publicKey: publicKey,
+          signTransaction: signTransaction,
+          allowHttp: true,
+        });
+
+        // Approve pool to spend tokens
+        const approveTx = await tokenClient.approve({
+          from: publicKey,
+          spender: currentPool.poolAddress,
+          amount: amountIn,
+          expiration_ledger: expirationLedger,
+        });
+        await approveTx.signAndSend();
+
+        // Execute swap
+        const poolClient = new PoolClient({
+          contractId: currentPool.poolAddress,
+          rpcUrl: "https://soroban-testnet.stellar.org",
+          networkPassphrase: "Test SDF Network ; September 2015",
+          publicKey: publicKey,
+          signTransaction: signTransaction,
+          allowHttp: true,
+        });
+
+        const swapTx = await poolClient.swap({
+          caller: publicKey,
+          input_token: fromTokenData.contractAddress,
+          amount_in: amountIn,
+        });
+        
+        const result = await swapTx.signAndSend();
+        console.log("Swap successful:", result);
+
+        toast({
+          title: "Swap Successful",
+          description: `Successfully swapped ${fromAmount} ${fromToken} for ${toAmount} ${toToken}`,
+        });
+      }
 
       // Clear form
       setFromAmount("");
@@ -578,7 +924,13 @@ export default function SwapPage() {
 
     } catch (error) {
       console.error("Swap failed:", error);
-      setSwapError(error instanceof Error ? error.message : "Swap failed");
+      const errorMessage = error instanceof Error ? error.message : "Swap failed";
+      setSwapError(errorMessage);
+      toast({
+        title: "Swap Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
       setIsLoadingSwap(false);
     }
@@ -610,60 +962,32 @@ export default function SwapPage() {
     }
   }, [publicKey, availableTokens]);
 
-  // Dynamic reserve mapping function
-  const getReserveMapping = (fromTokenData: SwapToken, toTokenData: SwapToken, pool: PoolData): { reserveIn: bigint; reserveOut: bigint; decimalsIn: number; decimalsOut: number } => {
-    // Find which reserve contains the fromToken and which contains the toToken
-    let fromTokenReserve: bigint;
-    let toTokenReserve: bigint;
-    let fromTokenDecimals: number;
-    let toTokenDecimals: number;
-    
-    // Check if reserves are stored in reverse order (reserve A = meme token, reserve B = USDC)
-    const reserveAIsMemeToken = pool.reserves[0] > pool.reserves[1]; // Meme tokens have larger numbers
-    const reserveBIsUSDC = pool.reserves[1] < pool.reserves[0]; // USDC has smaller numbers
-    
-    console.log("Debug - Reserve analysis:", {
-      reserveA: pool.reserves[0].toString(),
-      reserveB: pool.reserves[1].toString(),
-      reserveAIsMemeToken,
-      reserveBIsUSDC,
-      fromTokenIsUSDC: fromTokenData.contractAddress === CONTRACT_ADDRESSES.USDTToken,
-      toTokenIsUSDC: toTokenData.contractAddress === CONTRACT_ADDRESSES.USDTToken
-    });
-    
-    if (fromTokenData.contractAddress === CONTRACT_ADDRESSES.USDTToken) {
-      // From token is USDC - use the smaller reserve (reserve B)
-      fromTokenReserve = pool.reserves[1];
-      toTokenReserve = pool.reserves[0];
-      fromTokenDecimals = fromTokenData.decimals;
-      toTokenDecimals = toTokenData.decimals;
-      console.log("Debug - From token (USDC) using reserve B (smaller reserve)");
-    } else {
-      // From token is meme token - use the larger reserve (reserve A)
-      fromTokenReserve = pool.reserves[0];
-      toTokenReserve = pool.reserves[1];
-      fromTokenDecimals = fromTokenData.decimals;
-      toTokenDecimals = toTokenData.decimals;
-      console.log("Debug - From token (meme) using reserve A (larger reserve)");
+  // Fetch XLM balance when wallet connects
+  useEffect(() => {
+    if (publicKey) {
+      fetchXlmBalance();
     }
-    
-    // Set the mapping for the swap calculation
-    const reserveIn = fromTokenReserve;
-    const reserveOut = toTokenReserve;
-    const decimalsIn = fromTokenDecimals;
-    const decimalsOut = toTokenDecimals;
-    
-    console.log("Debug - Final reserve mapping:", {
-      reserveIn: reserveIn.toString(),
-      reserveOut: reserveOut.toString(),
-      decimalsIn,
-      decimalsOut,
-      fromTokenSymbol: fromTokenData.symbol,
-      toTokenSymbol: toTokenData.symbol
-    });
-    
-    return { reserveIn, reserveOut, decimalsIn, decimalsOut };
-  };
+  }, [publicKey]);
+
+  // Fetch XLM price when wallet connects
+  useEffect(() => {
+    if (publicKey) {
+      fetchXlmPrice();
+      
+      // Set up periodic refresh every 30 seconds
+      const interval = setInterval(fetchXlmPrice, 30000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [publicKey]);
+
+  // Recalculate amount when pool data changes
+  useEffect(() => {
+    if (fromAmount && currentPool && fromToken && toToken) {
+      // Trigger recalculation when pool data is available
+      handleAmountChange(fromAmount, true);
+    }
+  }, [currentPool, fromToken, toToken, fromAmount, availableTokens]);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white py-8">
@@ -729,13 +1053,17 @@ export default function SwapPage() {
                           availableTokens.map((token) => (
                           <SelectItem key={token.symbol} value={token.symbol}>
                             <div className="flex items-center space-x-2">
-                              <Image
-                                src={token.image || "/placeholder.svg"}
-                                alt={token.symbol}
-                                width={20}
-                                height={20}
-                                className="rounded-full"
-                              />
+                              {token.isNativeXLM ? (
+                                <Coins className="w-4 h-4 text-yellow-400" />
+                              ) : (
+                                <Image
+                                  src={token.image || "/placeholder.svg"}
+                                  alt={token.symbol}
+                                  width={20}
+                                  height={20}
+                                  className="rounded-full"
+                                />
+                              )}
                               <span>{token.symbol}</span>
                             </div>
                           </SelectItem>
@@ -807,13 +1135,17 @@ export default function SwapPage() {
                           availableTokens.map((token) => (
                           <SelectItem key={token.symbol} value={token.symbol}>
                             <div className="flex items-center space-x-2">
-                              <Image
-                                src={token.image || "/placeholder.svg"}
-                                alt={token.symbol}
-                                width={20}
-                                height={20}
-                                className="rounded-full"
-                              />
+                              {token.isNativeXLM ? (
+                                <Coins className="w-4 h-4 text-yellow-400" />
+                              ) : (
+                                <Image
+                                  src={token.image || "/placeholder.svg"}
+                                  alt={token.symbol}
+                                  width={20}
+                                  height={20}
+                                  className="rounded-full"
+                                />
+                              )}
                               <span>{token.symbol}</span>
                             </div>
                           </SelectItem>
@@ -858,7 +1190,42 @@ export default function SwapPage() {
                     {currentPool && (
                       <div className="mt-2 text-xs text-gray-400">
                         <div>Pool Address: {currentPool.poolAddress.slice(0, 8)}...{currentPool.poolAddress.slice(-8)}</div>
+                        {currentPool.isXlmPool && (
+                          <div className="text-yellow-400">✓ Native XLM Pool</div>
+                        )}
                         
+                        {/* XLM Price Display */}
+                        {(fromToken === "XLM" || toToken === "XLM") && xlmPrice && (
+                          <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-500/30 rounded">
+                            <div className="flex items-center justify-between">
+                              <span className="text-yellow-400 text-xs">XLM Price</span>
+                              <div className="flex items-center space-x-2">
+                                <span className="text-yellow-300 text-xs font-medium">
+                                  ${xlmPrice.price.toFixed(4)}
+                                </span>
+                                <button
+                                  onClick={fetchXlmPrice}
+                                  disabled={isLoadingXlmPrice}
+                                  className="text-yellow-400 hover:text-yellow-300 transition-colors"
+                                  title="Refresh XLM price"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-yellow-400/70 text-xs mt-1">
+                              Source: {xlmPrice.source} • Updated: {xlmPrice.lastUpdated.toLocaleTimeString()}
+                            </div>
+                            {isLoadingXlmPrice && (
+                              <div className="flex items-center space-x-1 mt-1">
+                                <Loader2 className="w-3 h-3 animate-spin text-yellow-400" />
+                                <span className="text-yellow-400/70 text-xs">Updating price...</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         
                         {/* <div className="flex items-center space-x-4"> */}
                           {/* <div className="relative group"> */}
@@ -897,10 +1264,70 @@ export default function SwapPage() {
                           
                           if (!fromTokenData || !toTokenData || !currentPool) return "0.00";
                           
-                          // Calculate rate for exactly 1 unit of fromToken
-                          const { reserveIn, reserveOut, decimalsIn, decimalsOut } = getReserveMapping(fromTokenData, toTokenData, currentPool);
+                          // Determine which reserve corresponds to which token
+                          let reserveIn: bigint;
+                          let reserveOut: bigint;
+                          let decimalsIn: number;
+                          let decimalsOut: number;
                           
-                          // Calculate with 0.3% fee for 1 unit
+                          // Create a dynamic mapping of token addresses to their reserves
+                          const tokenReserveMap = new Map<string, bigint>();
+                          tokenReserveMap.set(currentPool.tokenA, currentPool.reserves[0]);
+                          tokenReserveMap.set(currentPool.tokenB, currentPool.reserves[1]);
+                          
+                          // Identify which reserve corresponds to which token type based on magnitude
+                          const reserveAMagnitude = currentPool.reserves[0].toString().length;
+                          const reserveBMagnitude = currentPool.reserves[1].toString().length;
+                          
+                          // USDC has 6 decimals (smaller magnitude), Custom tokens have 18 decimals (larger magnitude)
+                          const reserveAIsUSDC = reserveAMagnitude < reserveBMagnitude;
+                          const reserveBIsUSDC = reserveBMagnitude < reserveAMagnitude;
+                          
+                          // Map reserves to their correct token types
+                          let usdcReserve: bigint;
+                          let customTokenReserve: bigint;
+                          
+                          if (reserveAIsUSDC) {
+                            usdcReserve = currentPool.reserves[0];
+                            customTokenReserve = currentPool.reserves[1];
+                          } else {
+                            usdcReserve = currentPool.reserves[1];
+                            customTokenReserve = currentPool.reserves[0];
+                          }
+                          
+                          // Now map based on the actual tokens being swapped
+                          if (fromTokenData.decimals === 6 && toTokenData.decimals === 18) {
+                            // USDC → Custom Token
+                            reserveIn = usdcReserve;
+                            reserveOut = customTokenReserve;
+                            decimalsIn = 6;
+                            decimalsOut = 18;
+                          } else if (fromTokenData.decimals === 18 && toTokenData.decimals === 6) {
+                            // Custom Token → USDC
+                            reserveIn = customTokenReserve;
+                            reserveOut = usdcReserve;
+                            decimalsIn = 18;
+                            decimalsOut = 6;
+                          } else {
+                            // Fallback: use direct mapping
+                            const fromTokenReserve = tokenReserveMap.get(fromTokenData.contractAddress);
+                            const toTokenReserve = tokenReserveMap.get(toTokenData.contractAddress);
+                            
+                            if (fromTokenReserve !== undefined && toTokenReserve !== undefined) {
+                              reserveIn = fromTokenReserve;
+                              reserveOut = toTokenReserve;
+                              decimalsIn = fromTokenData.decimals;
+                              decimalsOut = toTokenData.decimals;
+                            } else {
+                              // Final fallback
+                              reserveIn = currentPool.reserves[0];
+                              reserveOut = currentPool.reserves[1];
+                              decimalsIn = fromTokenData.decimals;
+                              decimalsOut = toTokenData.decimals;
+                            }
+                          }
+                          
+                          // Calculate rate for exactly 1 unit of fromToken
                           const amountInBigInt = BigInt(Math.pow(10, decimalsIn)); // 1 unit in raw format
                           const fee = BigInt(30); // 0.3% = 30 basis points
                           const feeDenominator = BigInt(10000);
@@ -918,6 +1345,24 @@ export default function SwapPage() {
                         })()} {toToken}
                       </span>
                     </div>
+                    
+                    {/* XLM Value in USD */}
+                    {(fromToken === "XLM" || toToken === "XLM") && xlmPrice && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Value in USD</span>
+                        <span className="text-yellow-300">
+                          ${(() => {
+                            if (fromToken === "XLM") {
+                              return (parseFloat(fromAmount) * xlmPrice.price).toFixed(2);
+                            } else if (toToken === "XLM") {
+                              return (parseFloat(toAmount) * xlmPrice.price).toFixed(2);
+                            }
+                            return "0.00";
+                          })()}
+                        </span>
+                      </div>
+                    )}
+                    
                     <div className="flex justify-between">
                       <span className="text-gray-400">Slippage Tolerance</span>
                       <span>{slippage}%</span>
@@ -956,36 +1401,6 @@ export default function SwapPage() {
               </CardContent>
             </Card>
           </div>
-
-            {/* Recent Trades */}
-          {/* <div>
-            <Card className="bg-gray-900 border-gray-800">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Clock className="mr-2 h-5 w-5 text-blue-500" />
-                  Recent Trades
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {recentTrades.map((trade, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-gray-800 rounded">
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${trade.type === "buy" ? "bg-green-500" : "bg-red-500"}`} />
-                        <span className="text-sm">
-                          {trade.amount} {trade.from}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-medium">{trade.value}</div>
-                        <div className="text-xs text-gray-400">{trade.time}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div> */}
         </div>
       </div>
     </div>
