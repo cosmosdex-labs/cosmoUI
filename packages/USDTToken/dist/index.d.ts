@@ -7,7 +7,7 @@ export * as rpc from '@stellar/stellar-sdk/rpc';
 export declare const networks: {
     readonly testnet: {
         readonly networkPassphrase: "Test SDF Network ; September 2015";
-        readonly contractId: "CAJYBNVOWNK2ZOECLROPEIUXJV5T4T4GOGFFCUIXFOHTMXUL75Q75ONO";
+        readonly contractId: "CDDCSR7UHIHB5CWQS7CYZ6NSQJ6EFWZV5SQGGTUTFZKNPVY2DOPP2G53";
     };
 };
 export interface AllowanceDataKey {
