@@ -277,12 +277,9 @@ export default function AnalyticsPage() {
     }
   };
 
-  // Calculate real pool volume based on trading activity
+  // Calculate pool volume using real contract data
   const calculatePoolVolume = async (poolAddress: string, tokenPrice: number, tokenDecimals: number): Promise<number> => {
     try {
-      // In a real implementation, you would query transaction history for this pool
-      // For now, we'll calculate based on pool characteristics and realistic trading patterns
-      
       const poolClient = new PoolClient({
         contractId: poolAddress,
         rpcUrl: "https://soroban-testnet.stellar.org",
@@ -290,64 +287,89 @@ export default function AnalyticsPage() {
         allowHttp: true,
       });
 
-      // Get current reserves to understand pool size
-      const reservesResult = await poolClient.get_reserves();
-      let reserves: [bigint, bigint] = [BigInt(0), BigInt(0)];
-      
-      if (reservesResult && typeof reservesResult === "object" && "result" in reservesResult) {
-        const result = reservesResult.result;
-        if (Array.isArray(result) && result.length === 2) {
-          reserves = [BigInt(result[0]), BigInt(result[1])];
-        }
-      }
+      // Fetch real volume data from contract
+      const [volume24hResult, volume7dResult, volumeAllTimeResult] = await Promise.all([
+        poolClient.get_total_volume_24h(),
+        poolClient.get_total_volume_7d(),
+        poolClient.get_total_volume_all_time()
+      ]);
 
-      const usdcReserve = Number(reserves[1]) / Math.pow(10, 6);
-      const tokenReserve = Number(reserves[0]) / Math.pow(10, tokenDecimals);
-      
-      // Calculate pool value
-      const poolValue = usdcReserve + (tokenReserve * tokenPrice);
-      
-      // Estimate 24h volume based on pool size and typical DEX volume ratios
-      // Most DEX pools have 24h volume between 5-50% of TVL
-      const volumeRatio = 0.1 + Math.random() * 0.4; // 10-50% of TVL
-      const estimatedVolume = poolValue * volumeRatio;
-      
-      // Add some randomness to simulate real trading patterns
-      const volatility = 0.5 + Math.random() * 1.0; // 0.5x to 1.5x multiplier
-      
-      return Math.max(1000, estimatedVolume * volatility); // Minimum $1000 volume
+      const volume24h = volume24hResult && typeof volume24hResult === "object" && "result" in volume24hResult 
+        ? Number(volume24hResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volume7d = volume7dResult && typeof volume7dResult === "object" && "result" in volume7dResult 
+        ? Number(volume7dResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volumeAllTime = volumeAllTimeResult && typeof volumeAllTimeResult === "object" && "result" in volumeAllTimeResult 
+        ? Number(volumeAllTimeResult.result) / Math.pow(10, 6) 
+        : 0;
+
+      // Return 24h volume for analytics
+      return volume24h;
     } catch (error) {
       console.error("Error calculating pool volume:", error);
-      return 5000; // Fallback to reasonable default
+      return 0;
     }
   };
 
-  // Calculate real APR based on fees and volume
+  // Calculate pool APR using real contract data
   const calculatePoolAPR = async (poolAddress: string, tvl: number, volume24h: number): Promise<number> => {
     try {
-      // Calculate daily fees (0.3% of volume)
-      const dailyFees = volume24h * 0.003;
-      
-      // Calculate annual fees
-      const annualFees = dailyFees * 365;
-      
-      // Calculate APR: (Annual Fees / TVL) * 100
-      const apr = tvl > 0 ? (annualFees / tvl) * 100 : 0;
-      
-      // Add some variation based on pool characteristics
-      const baseAPR = Math.max(5, Math.min(200, apr)); // Clamp between 5% and 200%
-      
-      // Add some randomness to simulate real market conditions
-      const marketVariation = 0.8 + Math.random() * 0.4; // 0.8x to 1.2x multiplier
-      
-      return baseAPR * marketVariation;
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      // Get total fees earned from contract
+      const feesResult = await poolClient.get_total_fees_earned();
+      let totalFees = 0;
+      if (feesResult && typeof feesResult === "object" && "result" in feesResult) {
+        totalFees = Number(feesResult.result) / Math.pow(10, 6);
+      }
+
+      // Calculate daily fees from volume
+      const feeRate = 0.003; // 0.3% fee
+      const dailyFees = volume24h * feeRate;
+
+      // Calculate APR
+      const apr = tvl > 0 ? ((dailyFees * 365) / tvl) * 100 : 0;
+      return apr;
     } catch (error) {
       console.error("Error calculating pool APR:", error);
-      return 25 + Math.random() * 50; // Fallback to 25-75% APR
+      return 0;
     }
   };
 
-  // Fetch all pools with analytics data
+  // Fetch pool TVL using real contract data
+  const fetchPoolTVL = async (poolAddress: string): Promise<number> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const tvlResult = await poolClient.get_pool_tvl();
+
+      let tvl = BigInt(0);
+      if (tvlResult && typeof tvlResult === "object" && "result" in tvlResult) {
+        tvl = BigInt(tvlResult.result || 0);
+      } else if (typeof tvlResult === "string" || typeof tvlResult === "number") {
+        tvl = BigInt(tvlResult);
+      }
+
+      // Convert to human readable format with 6 decimal places (USDC decimals)
+      return Number(tvl) / Math.pow(10, 6);
+    } catch (error) {
+      console.error("Error fetching pool TVL:", error);
+      return 0;
+    }
+  };
+
+  // Fetch all analytics pools with real data
   const fetchAnalyticsPools = async (availableTokens: AnalyticsToken[]): Promise<AnalyticsPool[]> => {
     try {
       const poolFactoryClient = new PoolFactoryClient({
@@ -359,8 +381,10 @@ export default function AnalyticsPage() {
 
       const pools: AnalyticsPool[] = [];
 
-      // Check for pools between USDC and each token
+      // Check for pools between USDC and each meme token
       for (const token of availableTokens) {
+        if (token.symbol === "USDC") continue;
+
         try {
           // Try both directions: USDC/token and token/USDC
           let poolResult = await poolFactoryClient.get_pool({
@@ -390,65 +414,39 @@ export default function AnalyticsPage() {
           }
 
           if (poolAddress) {
-            // Get pool reserves
-            const poolClient = new PoolClient({
-              contractId: poolAddress,
-              rpcUrl: "https://soroban-testnet.stellar.org",
-              networkPassphrase: "Test SDF Network ; September 2015",
-              allowHttp: true,
-            });
+            // Fetch real pool data using new contract methods
+            const [poolTVL, volume24h, apr] = await Promise.all([
+              fetchPoolTVL(poolAddress),
+              calculatePoolVolume(poolAddress, parseFloat(token.price.replace('$', '')), token.decimals),
+              calculatePoolAPR(poolAddress, 0, 0) // Will be calculated with real data
+            ]);
 
-            const reservesResult = await poolClient.get_reserves();
-            let reserves: [bigint, bigint] = [BigInt(0), BigInt(0)];
-            
-            if (reservesResult && typeof reservesResult === "object" && "result" in reservesResult) {
-              const result = reservesResult.result;
-              if (Array.isArray(result) && result.length === 2) {
-                reserves = [BigInt(result[0]), BigInt(result[1])];
-              }
-            }
+            // Recalculate APR with real volume data
+            const realAPR = await calculatePoolAPR(poolAddress, poolTVL, volume24h);
 
-            // Calculate real TVL from pool reserves
-            const usdcReserve = reserves[1]; // USDC is typically reserve B
-            const tokenReserve = reserves[0]; // Token is typically reserve A
-            const usdcAmount = Number(usdcReserve) / Math.pow(10, 6); // USDC has 6 decimals
-            const tokenAmount = Number(tokenReserve) / Math.pow(10, token.decimals);
-            
-            // Calculate token price in USDC
-            const tokenPrice = usdcAmount / tokenAmount;
-            
-            // Real TVL calculation (USDC value of both reserves)
-            const tvl = usdcAmount + (tokenAmount * tokenPrice);
+            // Calculate fees (0.3% of volume)
+            const fees24h = volume24h * 0.003;
 
-            // Calculate real 24h volume based on pool activity
-            const realVolume24h = await calculatePoolVolume(poolAddress, tokenPrice, token.decimals);
-            
-            // Calculate real APR based on fees and volume
-            const realAPR = await calculatePoolAPR(poolAddress, tvl, realVolume24h);
-            
-            // Calculate real 24h fees (0.3% of volume)
-            const realFees24h = realVolume24h * 0.003;
-
-            const usdcToken = {
-              symbol: "USDC",
-              image: "/usdc.png",
-              contractAddress: CONTRACT_ADDRESSES.USDTToken
-            };
+            const usdcToken = availableTokens.find(t => t.symbol === "USDC")!;
 
             const pool: AnalyticsPool = {
               rank: 0, // Will be set later
               pool: `${token.symbol}/USDC`,
-              tvl: `$${(tvl / 1000000).toFixed(1)}M`,
-              volume24h: `$${(realVolume24h / 1000).toFixed(0)}K`,
-              apr: `${realAPR.toFixed(1)}%`,
-              fees24h: `$${realFees24h.toFixed(0)}`,
+              tvl: `$${poolTVL.toFixed(2)}`,
+              volume24h: `$${volume24h.toFixed(2)}`,
+              apr: `${realAPR.toFixed(2)}%`,
+              fees24h: `$${fees24h.toFixed(2)}`,
               poolAddress,
               tokenA: { 
                 symbol: token.symbol, 
                 image: token.image, 
                 contractAddress: token.contractAddress 
               },
-              tokenB: usdcToken
+              tokenB: { 
+                symbol: "USDC", 
+                image: usdcToken.image, 
+                contractAddress: usdcToken.contractAddress 
+              }
             };
 
             pools.push(pool);
@@ -460,8 +458,8 @@ export default function AnalyticsPage() {
 
       // Sort by TVL and assign ranks
       const sortedPools = pools.sort((a, b) => {
-        const aTVL = parseFloat(a.tvl.replace('$', '').replace('M', ''));
-        const bTVL = parseFloat(b.tvl.replace('$', '').replace('M', ''));
+        const aTVL = parseFloat(a.tvl.replace('$', '').replace(',', ''));
+        const bTVL = parseFloat(b.tvl.replace('$', '').replace(',', ''));
         return bTVL - aTVL;
       });
 
@@ -490,7 +488,13 @@ export default function AnalyticsPage() {
 
     // Calculate total TVL from pools
     pools.forEach(pool => {
-      const tvl = parseFloat(pool.tvl.replace('$', '').replace('M', ''));
+      let tvl = parseFloat(pool.tvl.replace('$', '').replace(',', ''));
+      // Handle M and K suffixes
+      if (pool.tvl.includes('M')) {
+        tvl = parseFloat(pool.tvl.replace('$', '').replace('M', '')) * 1000000;
+      } else if (pool.tvl.includes('K')) {
+        tvl = parseFloat(pool.tvl.replace('$', '').replace('K', '')) * 1000;
+      }
       totalTVL += tvl;
     });
 
@@ -526,24 +530,99 @@ export default function AnalyticsPage() {
       const analyticsTokens = await fetchAnalyticsTokens();
       setTokens(analyticsTokens);
 
-      // Fetch pools with analytics data
+      // Fetch pools with real-time analytics
       const analyticsPools = await fetchAnalyticsPools(analyticsTokens);
       setPools(analyticsPools);
 
-      // Calculate overview
-      const analyticsOverview = calculateAnalyticsOverview(analyticsTokens, analyticsPools);
-      setOverview(analyticsOverview);
+      // Calculate enhanced overview with real-time data
+      const enhancedOverview = calculateAnalyticsOverview(analyticsTokens, analyticsPools);
+      setOverview(enhancedOverview);
 
-      // Set default selected token
-      if (analyticsTokens.length > 0) {
-        setSelectedToken(analyticsTokens[0].symbol);
-      }
+      // Fetch real-time analytics for each pool
+      const realTimeData = await Promise.all(
+        analyticsPools.map(async (pool) => {
+          const realTimeAnalytics = await fetchRealTimeAnalytics(pool.poolAddress);
+          return {
+            ...pool,
+            realTimeAnalytics
+          };
+        })
+      );
+
+      console.log("Real-time analytics data:", realTimeData);
 
     } catch (error) {
       console.error("Failed to fetch analytics data:", error);
       setError("Failed to load analytics data");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Fetch real-time pool analytics data
+  const fetchRealTimeAnalytics = async (poolAddress: string): Promise<{
+    tvl: string;
+    volume24h: string;
+    volume7d: string;
+    volumeAllTime: string;
+    totalFees: string;
+    apr: number;
+  }> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const [tvlResult, volume24hResult, volume7dResult, volumeAllTimeResult, totalFeesResult] = await Promise.all([
+        poolClient.get_pool_tvl(),
+        poolClient.get_total_volume_24h(),
+        poolClient.get_total_volume_7d(),
+        poolClient.get_total_volume_all_time(),
+        poolClient.get_total_fees_earned()
+      ]);
+
+      const tvl = tvlResult && typeof tvlResult === "object" && "result" in tvlResult 
+        ? Number(tvlResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volume24h = volume24hResult && typeof volume24hResult === "object" && "result" in volume24hResult 
+        ? Number(volume24hResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volume7d = volume7dResult && typeof volume7dResult === "object" && "result" in volume7dResult 
+        ? Number(volume7dResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volumeAllTime = volumeAllTimeResult && typeof volumeAllTimeResult === "object" && "result" in volumeAllTimeResult 
+        ? Number(volumeAllTimeResult.result) / Math.pow(10, 6) 
+        : 0;
+      const totalFees = totalFeesResult && typeof totalFeesResult === "object" && "result" in totalFeesResult 
+        ? Number(totalFeesResult.result) / Math.pow(10, 6) 
+        : 0;
+
+      // Calculate APR based on volume and fees
+      const feeRate = 0.003; // 0.3% fee
+      const dailyFees = volume24h * feeRate;
+      const apr = tvl > 0 ? ((dailyFees * 365) / tvl) * 100 : 0;
+
+      return {
+        tvl: `$${tvl.toFixed(2)}`,
+        volume24h: `$${volume24h.toFixed(2)}`,
+        volume7d: `$${volume7d.toFixed(2)}`,
+        volumeAllTime: `$${volumeAllTime.toFixed(2)}`,
+        totalFees: `$${totalFees.toFixed(2)}`,
+        apr
+      };
+    } catch (error) {
+      console.error("Error fetching real-time analytics:", error);
+      return {
+        tvl: "$0",
+        volume24h: "$0",
+        volume7d: "$0",
+        volumeAllTime: "$0",
+        totalFees: "$0",
+        apr: 0
+      };
     }
   };
 

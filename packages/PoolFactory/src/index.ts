@@ -34,11 +34,11 @@ if (typeof window !== 'undefined') {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBV4E3VRHLF7W6MYNK2YNY6WUJXZWMALXHN2VLUSSTNGQBBJ5TRFVA7X",
+    contractId: "CASD6PI5A62PTEWPTRM2HHBZGA53DMCHFDTU4UITEUT5VCWYUXI75SVJ",
   }
 } as const
 
-export type DataKey = {tag: "Admin", values: void} | {tag: "PoolWasmHash", values: void} | {tag: "DeployedPools", values: readonly [string, string]};
+export type DataKey = {tag: "Admin", values: void} | {tag: "PoolWasmHash", values: void} | {tag: "DeployedPools", values: readonly [string, string]} | {tag: "AllPools", values: void};
 
 export interface Client {
   /**
@@ -125,6 +125,48 @@ export interface Client {
     simulate?: boolean;
   }) => Promise<AssembledTransaction<Option<string>>>
 
+  /**
+   * Construct and simulate a get_all_pools transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Get all deployed pools
+   */
+  get_all_pools: (options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<Array<string>>>
+
+  /**
+   * Construct and simulate a get_pool_count transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Get total number of pools
+   */
+  get_pool_count: (options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<u32>>
+
 }
 export class Client extends ContractClient {
   static async deploy<T = Client>(
@@ -145,12 +187,14 @@ export class Client extends ContractClient {
   }
   constructor(public readonly options: ContractClientOptions) {
     super(
-      new ContractSpec([ "AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAAAwAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAAMUG9vbFdhc21IYXNoAAAAAQAAAAAAAAANRGVwbG95ZWRQb29scwAAAAAAAAIAAAATAAAAEw==",
+      new ContractSpec([ "AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAABAAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAAMUG9vbFdhc21IYXNoAAAAAQAAAAAAAAANRGVwbG95ZWRQb29scwAAAAAAAAIAAAATAAAAEwAAAAAAAAAAAAAACEFsbFBvb2xz",
         "AAAAAAAAAAAAAAANX19jb25zdHJ1Y3RvcgAAAAAAAAEAAAAAAAAABWFkbWluAAAAAAAAEwAAAAA=",
         "AAAAAAAAACxTZXQgdGhlIHBvb2wgY29udHJhY3QgV2FzbSBoYXNoIChhZG1pbiBvbmx5KQAAABV1cGRhdGVfcG9vbF93YXNtX2hhc2gAAAAAAAACAAAAAAAAAAphZG1pbl9hZGRyAAAAAAATAAAAAAAAAAhuZXdfaGFzaAAAA+4AAAAgAAAAAA==",
         "AAAAAAAAAB9HZXQgdGhlIHBvb2wgY29udHJhY3QgV2FzbSBoYXNoAAAAABJnZXRfcG9vbF93YXNtX2hhc2gAAAAAAAAAAAABAAAD7gAAACA=",
         "AAAAAAAAADxEZXBsb3kgYSBuZXcgcG9vbCBmb3IgYSB0b2tlbiBwYWlyLCByZXZlcnQgaWYgYWxyZWFkeSBleGlzdHMAAAALY3JlYXRlX3Bvb2wAAAAABQAAAAAAAAAHdG9rZW5fYQAAAAATAAAAAAAAAAd0b2tlbl9iAAAAABMAAAAAAAAADWxwX3Rva2VuX25hbWUAAAAAAAAQAAAAAAAAAA9scF90b2tlbl9zeW1ib2wAAAAAEAAAAAAAAAAEc2FsdAAAA+4AAAAgAAAAAQAAABM=",
-        "AAAAAAAAADxHZXQgdGhlIHBvb2wgYWRkcmVzcyBmb3IgYSB0b2tlbiBwYWlyLCBvciBOb25lIGlmIG5vdCBleGlzdHMAAAAIZ2V0X3Bvb2wAAAACAAAAAAAAAAd0b2tlbl9hAAAAABMAAAAAAAAAB3Rva2VuX2IAAAAAEwAAAAEAAAPoAAAAEw==" ]),
+        "AAAAAAAAADxHZXQgdGhlIHBvb2wgYWRkcmVzcyBmb3IgYSB0b2tlbiBwYWlyLCBvciBOb25lIGlmIG5vdCBleGlzdHMAAAAIZ2V0X3Bvb2wAAAACAAAAAAAAAAd0b2tlbl9hAAAAABMAAAAAAAAAB3Rva2VuX2IAAAAAEwAAAAEAAAPoAAAAEw==",
+        "AAAAAAAAABZHZXQgYWxsIGRlcGxveWVkIHBvb2xzAAAAAAANZ2V0X2FsbF9wb29scwAAAAAAAAAAAAABAAAD6gAAABM=",
+        "AAAAAAAAABlHZXQgdG90YWwgbnVtYmVyIG9mIHBvb2xzAAAAAAAADmdldF9wb29sX2NvdW50AAAAAAAAAAAAAQAAAAQ=" ]),
       options
     )
   }
@@ -158,6 +202,8 @@ export class Client extends ContractClient {
     update_pool_wasm_hash: this.txFromJSON<null>,
         get_pool_wasm_hash: this.txFromJSON<Buffer>,
         create_pool: this.txFromJSON<string>,
-        get_pool: this.txFromJSON<Option<string>>
+        get_pool: this.txFromJSON<Option<string>>,
+        get_all_pools: this.txFromJSON<Array<string>>,
+        get_pool_count: this.txFromJSON<u32>
   }
 }

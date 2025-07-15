@@ -15,6 +15,7 @@ import { CONTRACT_ADDRESSES } from "@/packages/deployment"
 import { getPublicKey, signTransaction } from "@/lib/stellar-wallets-kit"
 import { useToast } from "@/hooks/use-toast"
 import * as Stellar from "@stellar/stellar-sdk"
+import { useSearchParams } from "next/navigation"
 
 // Interface for token metadata from IPFS
 interface TokenMetadata {
@@ -68,6 +69,7 @@ const recentTrades = [
 ]
 
 export default function SwapPage() {
+  const searchParams = useSearchParams();
   const [fromToken, setFromToken] = useState("USDC")
   const [toToken, setToToken] = useState("")
   const [fromAmount, setFromAmount] = useState("")
@@ -92,6 +94,30 @@ export default function SwapPage() {
   useEffect(() => {
     getPublicKey().then(setPublicKey);
   }, []);
+
+  // On mount, check for ?from= and ?to= query params and set tokens
+  useEffect(() => {
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    if (from) setFromToken(from);
+    if (to) setToToken(to);
+  }, [searchParams]);
+
+  // Apply query params after tokens are loaded
+  useEffect(() => {
+    if (availableTokens.length > 0) {
+      const from = searchParams.get("from");
+      const to = searchParams.get("to");
+      
+      // Check if the tokens from query params exist in available tokens
+      if (from && availableTokens.find(t => t.symbol === from)) {
+        setFromToken(from);
+      }
+      if (to && availableTokens.find(t => t.symbol === to)) {
+        setToToken(to);
+      }
+    }
+  }, [availableTokens, searchParams]);
 
   // Fetch XLM price from external oracle
   const fetchXlmPrice = async () => {
@@ -290,8 +316,9 @@ export default function SwapPage() {
       const allTokens = [usdcToken, xlmToken, ...validTokens];
       setAvailableTokens(allTokens);
       
-      // Set initial toToken if not set
-      if (!toToken && allTokens.length > 1) {
+      // Set initial toToken if not set (but only if no query param is provided)
+      const toFromQuery = searchParams.get("to");
+      if (!toToken && !toFromQuery && allTokens.length > 1) {
         setToToken(allTokens[1].symbol);
       }
 
@@ -408,6 +435,75 @@ export default function SwapPage() {
     } catch (error) {
       console.error("Error fetching pool data:", error);
       return null;
+    }
+  };
+
+  // Fetch pool volume data for swap analytics
+  const fetchPoolVolume = async (poolAddress: string): Promise<{ volume24h: string; volume7d: string; volumeAllTime: string }> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const [volume24hResult, volume7dResult, volumeAllTimeResult] = await Promise.all([
+        poolClient.get_total_volume_24h(),
+        poolClient.get_total_volume_7d(),
+        poolClient.get_total_volume_all_time()
+      ]);
+
+      const volume24h = volume24hResult && typeof volume24hResult === "object" && "result" in volume24hResult 
+        ? Number(volume24hResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volume7d = volume7dResult && typeof volume7dResult === "object" && "result" in volume7dResult 
+        ? Number(volume7dResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volumeAllTime = volumeAllTimeResult && typeof volumeAllTimeResult === "object" && "result" in volumeAllTimeResult 
+        ? Number(volumeAllTimeResult.result) / Math.pow(10, 6) 
+        : 0;
+
+      return {
+        volume24h: `$${volume24h.toFixed(2)}`,
+        volume7d: `$${volume7d.toFixed(2)}`,
+        volumeAllTime: `$${volumeAllTime.toFixed(2)}`
+      };
+    } catch (error) {
+      console.error("Error fetching pool volume:", error);
+      return {
+        volume24h: "$0",
+        volume7d: "$0",
+        volumeAllTime: "$0"
+      };
+    }
+  };
+
+  // Fetch pool TVL for better price calculations
+  const fetchPoolTVL = async (poolAddress: string): Promise<string> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const tvlResult = await poolClient.get_pool_tvl();
+
+      let tvl = BigInt(0);
+      if (tvlResult && typeof tvlResult === "object" && "result" in tvlResult) {
+        tvl = BigInt(tvlResult.result || 0);
+      } else if (typeof tvlResult === "string" || typeof tvlResult === "number") {
+        tvl = BigInt(tvlResult);
+      }
+
+      // Convert to human readable format with 6 decimal places (USDC decimals)
+      const humanReadableTVL = Number(tvl) / Math.pow(10, 6);
+      return `$${humanReadableTVL.toFixed(2)}`;
+    } catch (error) {
+      console.error("Error fetching pool TVL:", error);
+      return "$0";
     }
   };
 

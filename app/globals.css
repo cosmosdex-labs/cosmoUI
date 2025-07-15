@@ -36,6 +36,134 @@
   }
 }
 
+/* Toast animations */
+@keyframes slide-in-from-top-full {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-bottom-full {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-to-right-full {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes fade-out-80 {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.animate-in {
+  animation-duration: 150ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+.animate-out {
+  animation-duration: 150ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+.slide-in-from-top-full {
+  animation-name: slide-in-from-top-full;
+}
+
+.slide-in-from-bottom-full {
+  animation-name: slide-in-from-bottom-full;
+}
+
+.slide-out-to-right-full {
+  animation-name: slide-out-to-right-full;
+}
+
+.fade-out-80 {
+  animation-name: fade-out-80;
+}
+
+/* Toast viewport styles */
+[data-radix-toast-viewport] {
+  position: fixed !important;
+  top: 0 !important;
+  z-index: 9999 !important;
+  display: flex !important;
+  max-height: 100vh !important;
+  width: 100% !important;
+  flex-direction: column-reverse !important;
+  padding: 1rem !important;
+}
+
+@media (min-width: 640px) {
+  [data-radix-toast-viewport] {
+    bottom: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    flex-direction: column !important;
+  }
+}
+
+@media (min-width: 768px) {
+  [data-radix-toast-viewport] {
+    max-width: 420px !important;
+  }
+}
+
+/* Ensure toast is visible */
+[data-radix-toast-root] {
+  background-color: white !important;
+  border-color: rgb(229 231 235) !important;
+  color: rgb(17 24 39) !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Additional specific overrides for toast styling */
+[data-radix-toast-root] * {
+  color: rgb(17 24 39) !important;
+}
+
+[data-radix-toast-root] [data-radix-toast-title] {
+  color: rgb(17 24 39) !important;
+}
+
+[data-radix-toast-root] [data-radix-toast-description] {
+  color: rgb(75 85 99) !important;
+}
+
+[data-radix-toast-root] [data-radix-toast-close] {
+  color: rgb(107 114 128) !important;
+}
+
+/* Force white background on all toast elements */
+.bg-white {
+  background-color: white !important;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

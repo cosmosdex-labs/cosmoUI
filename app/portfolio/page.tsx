@@ -211,7 +211,7 @@ export default function PortfolioPage() {
         allowHttp: true,
       });
 
-      const balanceResult = await poolClient.balance({
+      const balanceResult = await poolClient.balance_of({
         id: publicKey
       });
 
@@ -228,6 +228,159 @@ export default function PortfolioPage() {
     } catch (error) {
       console.error("Error fetching LP balance:", error);
       return "0";
+    }
+  };
+
+  // Fetch user's unclaimed fees for a pool
+  const fetchUnclaimedFees = async (poolAddress: string): Promise<string> => {
+    if (!publicKey) return "0";
+
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const feesResult = await poolClient.get_user_unclaimed_fees({
+        user: publicKey
+      });
+
+      let fees = BigInt(0);
+      if (feesResult && typeof feesResult === "object" && "result" in feesResult) {
+        fees = BigInt(feesResult.result || 0);
+      } else if (typeof feesResult === "string" || typeof feesResult === "number") {
+        fees = BigInt(feesResult);
+      }
+
+      // Convert to human readable format with 6 decimal places (USDC decimals)
+      const humanReadableFees = Number(fees) / Math.pow(10, 6);
+      return humanReadableFees.toFixed(6);
+    } catch (error) {
+      console.error("Error fetching unclaimed fees:", error);
+      return "0";
+    }
+  };
+
+  // Fetch pool volume data
+  const fetchPoolVolume = async (poolAddress: string): Promise<{ volume24h: string; volume7d: string; volumeAllTime: string }> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const [volume24hResult, volume7dResult, volumeAllTimeResult] = await Promise.all([
+        poolClient.get_total_volume_24h(),
+        poolClient.get_total_volume_7d(),
+        poolClient.get_total_volume_all_time()
+      ]);
+
+      const volume24h = volume24hResult && typeof volume24hResult === "object" && "result" in volume24hResult 
+        ? Number(volume24hResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volume7d = volume7dResult && typeof volume7dResult === "object" && "result" in volume7dResult 
+        ? Number(volume7dResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volumeAllTime = volumeAllTimeResult && typeof volumeAllTimeResult === "object" && "result" in volumeAllTimeResult 
+        ? Number(volumeAllTimeResult.result) / Math.pow(10, 6) 
+        : 0;
+
+      return {
+        volume24h: `$${volume24h.toFixed(2)}`,
+        volume7d: `$${volume7d.toFixed(2)}`,
+        volumeAllTime: `$${volumeAllTime.toFixed(2)}`
+      };
+    } catch (error) {
+      console.error("Error fetching pool volume:", error);
+      return {
+        volume24h: "$0",
+        volume7d: "$0",
+        volumeAllTime: "$0"
+      };
+    }
+  };
+
+  // Fetch user's detailed liquidity position
+  const fetchUserLiquidityPosition = async (poolAddress: string): Promise<{ tokenABalance: string; tokenBBalance: string; lpTokenBalance: string }> => {
+    if (!publicKey) return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0" };
+
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const positionResult = await poolClient.get_user_liquidity_position({
+        user: publicKey
+      });
+
+      let tokenABalance = BigInt(0);
+      let tokenBBalance = BigInt(0);
+      let lpTokenBalance = BigInt(0);
+
+      if (positionResult && typeof positionResult === "object" && "result" in positionResult) {
+        const result = positionResult.result;
+        if (Array.isArray(result) && result.length === 3) {
+          tokenABalance = BigInt(result[0]);
+          tokenBBalance = BigInt(result[1]);
+          lpTokenBalance = BigInt(result[2]);
+        }
+      }
+
+      return {
+        tokenABalance: (Number(tokenABalance) / Math.pow(10, 18)).toFixed(6),
+        tokenBBalance: (Number(tokenBBalance) / Math.pow(10, 6)).toFixed(6), // Assuming token B is USDC
+        lpTokenBalance: (Number(lpTokenBalance) / Math.pow(10, 18)).toFixed(6)
+      };
+    } catch (error) {
+      console.error("Error fetching user liquidity position:", error);
+      return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0" };
+    }
+  };
+
+  // Fetch pool TVL
+  const fetchPoolTVL = async (poolAddress: string): Promise<string> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const tvlResult = await poolClient.get_pool_tvl();
+
+      let tvl = BigInt(0);
+      if (tvlResult && typeof tvlResult === "object" && "result" in tvlResult) {
+        tvl = BigInt(tvlResult.result || 0);
+      } else if (typeof tvlResult === "string" || typeof tvlResult === "number") {
+        tvl = BigInt(tvlResult);
+      }
+
+      // Convert to human readable format with 6 decimal places (USDC decimals)
+      const humanReadableTVL = Number(tvl) / Math.pow(10, 6);
+      
+      // Format the TVL properly with appropriate units
+      if (humanReadableTVL >= 1000000) {
+        return `$${(humanReadableTVL / 1000000).toFixed(2)}M`;
+      } else if (humanReadableTVL >= 1000) {
+        return `$${(humanReadableTVL / 1000).toFixed(2)}K`;
+      } else if (humanReadableTVL >= 1) {
+        return `$${humanReadableTVL.toFixed(2)}`;
+      } else if (humanReadableTVL >= 0.01) {
+        return `$${humanReadableTVL.toFixed(4)}`;
+      } else {
+        return `$${humanReadableTVL.toFixed(6)}`;
+      }
+    } catch (error) {
+      console.error("Error fetching pool TVL:", error);
+      return "$0";
     }
   };
 
@@ -385,29 +538,35 @@ export default function PortfolioPage() {
 
             // Only include positions with LP tokens
             if (parseFloat(lpBalance) > 0) {
-              // Calculate TVL (simplified calculation)
-              const usdcReserve = reserves[1]; // USDC is typically reserve B
-              const tokenReserve = reserves[0]; // Meme token is typically reserve A
-              const tvl = Number(usdcReserve) / Math.pow(10, 6) * 2; // Simplified TVL calculation
+              // Fetch real pool data using new contract methods
+              const [poolTVL, volumeData, userPosition, unclaimedFees] = await Promise.all([
+                fetchPoolTVL(poolAddress),
+                fetchPoolVolume(poolAddress),
+                fetchUserLiquidityPosition(poolAddress),
+                fetchUnclaimedFees(poolAddress)
+              ]);
 
-              // Calculate position value
+              // Calculate position value using real TVL
               const lpBalanceNum = parseFloat(lpBalance);
-              const positionValue = (lpBalanceNum * tvl / 100).toFixed(2);
-
-              // Calculate pool share (simplified)
+              const tvlNum = parseFloat(poolTVL.replace('$', '').replace('M', '').replace('K', ''));
               const totalSupply = await poolClient.supply();
               let totalSupplyNum = 0;
               if (totalSupply && typeof totalSupply === "object" && "result" in totalSupply) {
                 totalSupplyNum = Number(totalSupply.result) / Math.pow(10, 18);
               }
-              const share = totalSupplyNum > 0 ? ((lpBalanceNum / totalSupplyNum) * 100).toFixed(2) : "0";
+              
+              const positionValue = totalSupplyNum > 0 ? (lpBalanceNum / totalSupplyNum) * tvlNum : 0;
+              const share = totalSupplyNum > 0 ? ((lpBalanceNum / totalSupplyNum) * 100) : 0;
 
-              // Calculate APR (mock calculation for now)
-              const apr = "45.2%";
+              // Calculate APR based on volume and fees (simplified calculation)
+              const volume24hNum = parseFloat(volumeData.volume24h.replace('$', ''));
+              const feeRate = 0.003; // 0.3% fee
+              const dailyFees = volume24hNum * feeRate;
+              const apr = tvlNum > 0 ? ((dailyFees * 365) / tvlNum) * 100 : 0;
 
-              // Calculate fees (mock for now)
-              const fees24h = "$12.50";
-              const feesTotal = "$156.75";
+              // Calculate fees earned (24h estimate)
+              const userShare = share / 100;
+              const fees24h = dailyFees * userShare;
 
               const usdcToken = availableTokens.find(t => t.symbol === "USDC")!;
 
@@ -424,11 +583,11 @@ export default function PortfolioPage() {
                   image: usdcToken.image, 
                   contractAddress: usdcToken.contractAddress 
                 },
-                value: `$${positionValue}`,
-                share: `${share}%`,
-                apr,
-                fees24h,
-                feesTotal,
+                value: `$${positionValue.toFixed(2)}`,
+                share: `${share.toFixed(2)}%`,
+                apr: `${apr.toFixed(2)}%`,
+                fees24h: `$${fees24h.toFixed(2)}`,
+                feesTotal: `$${parseFloat(unclaimedFees).toFixed(2)}`,
                 lpTokenBalance: lpBalance,
                 reserves
               };
@@ -496,7 +655,13 @@ export default function PortfolioPage() {
 
     // Calculate liquidity values
     liquidityPositions.forEach(position => {
-      const value = parseFloat(position.value.replace("$", "").replace(",", ""));
+      let value = parseFloat(position.value.replace("$", "").replace(",", ""));
+      // Handle M and K suffixes
+      if (position.value.includes('M')) {
+        value = parseFloat(position.value.replace('$', '').replace('M', '')) * 1000000;
+      } else if (position.value.includes('K')) {
+        value = parseFloat(position.value.replace('$', '').replace('K', '')) * 1000;
+      }
       liquidityValue += value;
       totalValue += value;
 
@@ -508,12 +673,31 @@ export default function PortfolioPage() {
     const change = totalValue * 0.11; // 11% increase for demo
     const changePercent = totalValue > 0 ? (change / totalValue) * 100 : 0;
 
+    // Helper function to format large numbers
+    const formatLargeNumber = (num: number): string => {
+      if (num >= 1e12) {
+        return `$${(num / 1e12).toFixed(2)}T`;
+      } else if (num >= 1e9) {
+        return `$${(num / 1e9).toFixed(2)}B`;
+      } else if (num >= 1e6) {
+        return `$${(num / 1e6).toFixed(2)}M`;
+      } else if (num >= 1e3) {
+        return `$${(num / 1e3).toFixed(2)}K`;
+      } else if (num >= 1) {
+        return `$${num.toFixed(2)}`;
+      } else if (num >= 0.01) {
+        return `$${num.toFixed(4)}`;
+      } else {
+        return `$${num.toFixed(6)}`;
+      }
+    };
+
     return {
-      totalValue: `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      totalChange: `+$${change.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      totalValue: formatLargeNumber(totalValue),
+      totalChange: `+${formatLargeNumber(change)}`,
       totalChangePercent: `+${changePercent.toFixed(2)}%`,
-      liquidityValue: `$${liquidityValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      totalFeesEarned: `$${totalFeesEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      liquidityValue: formatLargeNumber(liquidityValue),
+      totalFeesEarned: formatLargeNumber(totalFeesEarned)
     };
   };
 
