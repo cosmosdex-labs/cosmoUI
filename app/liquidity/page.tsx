@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -71,12 +71,13 @@ interface PoolData {
   tokenA: LiquidityToken;
   tokenB: LiquidityToken;
   reserves: [bigint, bigint];
-  tvl: string;
+  tvl: number;
   apr: string;
   volume24h: string;
   myLiquidity: string;
   myShare: string;
   fees24h: string;
+  unclaimedFees: string;
   lpTokenBalance: string;
   isXlmPool?: boolean;
   xlmTokenIndex?: number;
@@ -99,8 +100,29 @@ export default function LiquidityPage() {
   const [isInitialLiquidity, setIsInitialLiquidity] = useState(false)
   const [lastEditedField, setLastEditedField] = useState<'tokenA' | 'tokenB' | null>(null)
   const [xlmBalance, setXlmBalance] = useState<string>("0")
+  const poolsLoadedRef = useRef(false)
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false)
 
   const { toast } = useToast()
+
+  // Helper function to format large numbers
+  const formatLargeNumber = (num: number): string => {
+    if (num >= 1e12) {
+      return `$${(num / 1e12).toFixed(2)}T`;
+    } else if (num >= 1e9) {
+      return `$${(num / 1e9).toFixed(2)}B`;
+    } else if (num >= 1e6) {
+      return `$${(num / 1e6).toFixed(2)}M`;
+    } else if (num >= 1e3) {
+      return `$${(num / 1e3).toFixed(2)}K`;
+    } else if (num >= 1) {
+      return `$${num.toFixed(2)}`;
+    } else if (num >= 0.01) {
+      return `$${num.toFixed(4)}`;
+    } else {
+      return `$${num.toFixed(6)}`;
+    }
+  };
 
   // Helper function to format balances nicely
   const formatBalance = (balance: string, decimals: number = 6): string => {
@@ -658,10 +680,12 @@ export default function LiquidityPage() {
 
   // Fetch all pools
   const fetchAllPools = async () => {
-    if (availableTokens.length === 0) return;
+    if (isLoadingPools) return; // Prevent concurrent calls
+    
+    setIsLoadingPools(true);
+    setError(null);
 
     try {
-      setIsLoadingPools(true);
       const poolFactoryClient = new PoolFactoryClient({
         contractId: CONTRACT_ADDRESSES.PoolFactory,
         rpcUrl: "https://soroban-testnet.stellar.org",
@@ -671,12 +695,12 @@ export default function LiquidityPage() {
 
       const pools: PoolData[] = [];
 
-      // Check for pools between USDC and each meme token
+      // Check for pools between USDC and each token, and XLM and each token
       for (const token of availableTokens) {
-        if (token.symbol === "USDC") continue;
+        if (token.symbol === "USDC" || token.symbol === "XLM") continue;
 
         try {
-          // Try both directions: USDC/token and token/USDC
+          // Check for USDC pools first
           let poolResult = await poolFactoryClient.get_pool({
             token_a: CONTRACT_ADDRESSES.USDTToken,
             token_b: token.contractAddress,
@@ -704,7 +728,7 @@ export default function LiquidityPage() {
           }
 
           if (poolAddress) {
-            // Get pool reserves and check if it's an XLM pool
+            // Get pool reserves
             const poolClient = new PoolClient({
               contractId: poolAddress,
               rpcUrl: "https://soroban-testnet.stellar.org",
@@ -717,130 +741,99 @@ export default function LiquidityPage() {
             
             if (reservesResult && typeof reservesResult === "object" && "result" in reservesResult) {
               const result = reservesResult.result;
-              if (Array.isArray(result) && result.length >= 2) {
+              if (Array.isArray(result) && result.length === 2) {
                 reserves = [BigInt(result[0]), BigInt(result[1])];
               }
-            } else if (reservesResult && Array.isArray(reservesResult as any) && (reservesResult as any).length >= 2) {
-              reserves = [BigInt((reservesResult as any)[0]), BigInt((reservesResult as any)[1])];
-            } else if (reservesResult && typeof reservesResult === "object" && "0" in reservesResult && "1" in reservesResult) {
-              // Handle tuple-like object
-              reserves = [BigInt(reservesResult[0]), BigInt(reservesResult[1])];
             }
 
             // Check if this is an XLM pool
-            let isXlmPool = false;
-            let xlmTokenIndex: number | undefined;
+            const isXlmPoolResult = await poolClient.is_xlm_pool();
+            const isXlmPool = isXlmPoolResult && typeof isXlmPoolResult === "object" && "result" in isXlmPoolResult 
+              ? isXlmPoolResult.result 
+              : false;
+
+            const xlmTokenIndexResult = await poolClient.get_xlm_token_index();
+            const xlmTokenIndex = xlmTokenIndexResult && typeof xlmTokenIndexResult === "object" && "result" in xlmTokenIndexResult 
+              ? xlmTokenIndexResult.result 
+              : undefined;
+
+            // Fetch real pool data using new contract methods
+            const [poolTVL, volumeData, userPosition, unclaimedFees] = await Promise.all([
+              fetchPoolTVL(poolAddress),
+              fetchPoolVolume(poolAddress),
+              fetchUserLiquidityPosition(poolAddress),
+              fetchUnclaimedFees(poolAddress)
+            ]);
+
+            // Calculate APR based on volume and fees
+            const volume24hNum = parseFloat(volumeData.volume24h.replace('$', ''));
+            const tvlNum = poolTVL; // poolTVL is already a number
+            const feeRate = 0.003; // 0.3% fee
+            const dailyFees = volume24hNum * feeRate;
+            const apr = tvlNum > 0 ? ((dailyFees * 365) / tvlNum) * 100 : 0;
+
+            // Calculate user's position value using BigInt arithmetic to avoid precision issues
+            const lpBalanceRaw = BigInt(Math.round(parseFloat(userPosition.lpTokenBalance) * Math.pow(10, 18)));
+            const totalSupply = await poolClient.supply();
+            let totalSupplyRaw = BigInt(0);
+            if (totalSupply && typeof totalSupply === "object" && "result" in totalSupply) {
+              totalSupplyRaw = BigInt(totalSupply.result);
+            }
             
-            try {
-              const isXlmPoolResult = await poolClient.is_xlm_pool();
-              if (isXlmPoolResult && typeof isXlmPoolResult === "object" && "result" in isXlmPoolResult) {
-                isXlmPool = isXlmPoolResult.result || false;
-              } else if (typeof isXlmPoolResult === "boolean") {
-                isXlmPool = isXlmPoolResult;
-              }
+            // Calculate share using BigInt arithmetic: (lpBalance * 10000) / totalSupply (in basis points)
+            const shareBasisPoints = totalSupplyRaw > 0 ? Number((lpBalanceRaw * BigInt(10000)) / totalSupplyRaw) : 0;
+            const share = shareBasisPoints / 100; // Convert from basis points to percentage
+            
+            const positionValue = totalSupplyRaw > 0 ? (Number(lpBalanceRaw) / Number(totalSupplyRaw)) * tvlNum : 0;
 
-              if (isXlmPool) {
-                const xlmTokenIndexResult = await poolClient.get_xlm_token_index();
-                if (xlmTokenIndexResult && typeof xlmTokenIndexResult === "object" && "result" in xlmTokenIndexResult) {
-                  xlmTokenIndex = xlmTokenIndexResult.result;
-                } else if (typeof xlmTokenIndexResult === "number") {
-                  xlmTokenIndex = xlmTokenIndexResult;
-                }
+            // Calculate fees earned (24h estimate)
+            const userShare = share / 100;
+            const fees24h = dailyFees * userShare;
+
+            // Format share with better precision for small amounts
+            let shareDisplay = "0.00%";
+            if (share > 0) {
+              if (share >= 0.01) {
+                shareDisplay = `${share.toFixed(2)}%`;
+              } else if (share >= 0.0001) {
+                shareDisplay = `${share.toFixed(4)}%`;
+              } else if (share >= 0.000001) {
+                shareDisplay = `${share.toFixed(6)}%`;
+              } else {
+                shareDisplay = `< 0.000001%`;
               }
-            } catch (error) {
-              console.log("Could not determine if pool is XLM pool:", error);
             }
 
-            // Get LP token balance
-            const lpBalance = await fetchLPBalance(poolAddress);
+            const usdcToken = availableTokens.find(t => t.symbol === "USDC")!;
 
-            // Calculate TVL and other metrics
-            const reserveAValue = Number(reserves[0]) / Math.pow(10, 18); // Custom token
-            const reserveBValue = Number(reserves[1]) / Math.pow(10, 6); // USDC
-            const tvl = (reserveAValue * 0.001 + reserveBValue).toFixed(2); // Assuming 0.001 price for custom token
-
-            // Determine token order based on pool structure
-            let tokenA: LiquidityToken;
-            let tokenB: LiquidityToken;
-
-            if (token.contractAddress === CONTRACT_ADDRESSES.USDTToken) {
-              // USDC pool
-              tokenA = {
-                symbol: "USDC",
-                name: "USD Coin",
-                image: "/usdc.png",
-                contractAddress: CONTRACT_ADDRESSES.USDTToken,
-                balance: "0",
-                decimals: 6,
-                isNativeXLM: false,
-              };
-              tokenB = {
-                symbol: token.symbol,
-                name: token.name,
-                image: token.image,
-                contractAddress: token.contractAddress,
-                balance: "0",
-                decimals: token.decimals,
-                isNativeXLM: token.isNativeXLM,
-              };
-            } else {
-              // Custom token pool
-              tokenA = {
-                symbol: token.symbol,
-                name: token.name,
-                image: token.image,
-                contractAddress: token.contractAddress,
-                balance: "0",
-                decimals: token.decimals,
-                isNativeXLM: token.isNativeXLM,
-              };
-              tokenB = {
-                symbol: "USDC",
-                name: "USD Coin",
-                image: "/usdc.png",
-                contractAddress: CONTRACT_ADDRESSES.USDTToken,
-                balance: "0",
-                decimals: 6,
-                isNativeXLM: false,
-              };
-            }
-
-            const poolData: PoolData = {
-              id: poolAddress,
+            const pool: PoolData = {
+              id: `${token.symbol}/USDC`,
               poolAddress,
-              tokenA,
-              tokenB,
+              tokenA: token,
+              tokenB: usdcToken,
               reserves,
-              tvl: `$${tvl}M`,
-              apr: "12.5%",
-              volume24h: "$125K",
-              myLiquidity: "0",
-              myShare: "0%",
-              fees24h: "$45",
-              lpTokenBalance: lpBalance,
+              tvl: tvlNum,
+              apr: `${apr.toFixed(2)}%`,
+              volume24h: volumeData.volume24h,
+              myLiquidity: `$${positionValue.toFixed(2)}`,
+              myShare: shareDisplay,
+              fees24h: `$${fees24h.toFixed(2)}`,
+              unclaimedFees: `$${parseFloat(unclaimedFees).toFixed(6)}`,
+              lpTokenBalance: userPosition.lpTokenBalance,
               isXlmPool,
-              xlmTokenIndex,
+              xlmTokenIndex
             };
 
-            pools.push(poolData);
+            pools.push(pool);
           }
-        } catch (error) {
-          console.error(`Error fetching pool for token ${token.symbol}:`, error);
-        }
-      }
 
-      // Also check for XLM pools with custom tokens
-      for (const token of availableTokens) {
-        if (token.symbol === "XLM" || token.symbol === "USDC") continue;
-
-        try {
-          // Try XLM/token pool
-          let poolResult = await poolFactoryClient.get_pool({
-            token_a: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // Use actual XLM contract address
+          // Now check for XLM pools
+          poolResult = await poolFactoryClient.get_pool({
+            token_a: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // XLM contract address
             token_b: token.contractAddress,
           });
 
-          let poolAddress = "";
+          poolAddress = "";
           if (poolResult && typeof poolResult === "object" && "result" in poolResult) {
             poolAddress = poolResult.result || "";
           } else if (typeof poolResult === "string") {
@@ -851,7 +844,7 @@ export default function LiquidityPage() {
           if (!poolAddress) {
             poolResult = await poolFactoryClient.get_pool({
               token_a: token.contractAddress,
-              token_b: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // Use actual XLM contract address
+              token_b: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // XLM contract address
             });
 
             if (poolResult && typeof poolResult === "object" && "result" in poolResult) {
@@ -862,7 +855,7 @@ export default function LiquidityPage() {
           }
 
           if (poolAddress) {
-            // Get pool reserves and check if it's an XLM pool
+            // Get pool reserves
             const poolClient = new PoolClient({
               contractId: poolAddress,
               rpcUrl: "https://soroban-testnet.stellar.org",
@@ -875,125 +868,100 @@ export default function LiquidityPage() {
             
             if (reservesResult && typeof reservesResult === "object" && "result" in reservesResult) {
               const result = reservesResult.result;
-              if (Array.isArray(result) && result.length >= 2) {
+              if (Array.isArray(result) && result.length === 2) {
                 reserves = [BigInt(result[0]), BigInt(result[1])];
               }
-            } else if (reservesResult && Array.isArray(reservesResult as any) && (reservesResult as any).length >= 2) {
-              reserves = [BigInt((reservesResult as any)[0]), BigInt((reservesResult as any)[1])];
-            } else if (reservesResult && typeof reservesResult === "object" && "0" in reservesResult && "1" in reservesResult) {
-              reserves = [BigInt(reservesResult[0]), BigInt(reservesResult[1])];
             }
 
             // Check if this is an XLM pool
-            let isXlmPool = false;
-            let xlmTokenIndex: number | undefined;
+            const isXlmPoolResult = await poolClient.is_xlm_pool();
+            const isXlmPool = isXlmPoolResult && typeof isXlmPoolResult === "object" && "result" in isXlmPoolResult 
+              ? isXlmPoolResult.result 
+              : false;
+
+            const xlmTokenIndexResult = await poolClient.get_xlm_token_index();
+            const xlmTokenIndex = xlmTokenIndexResult && typeof xlmTokenIndexResult === "object" && "result" in xlmTokenIndexResult 
+              ? xlmTokenIndexResult.result 
+              : undefined;
+
+            // Fetch real pool data using new contract methods
+            const [poolTVL, volumeData, userPosition, unclaimedFees] = await Promise.all([
+              fetchPoolTVL(poolAddress),
+              fetchPoolVolume(poolAddress),
+              fetchUserLiquidityPosition(poolAddress),
+              fetchUnclaimedFees(poolAddress)
+            ]);
+
+            // Calculate APR based on volume and fees
+            const volume24hNum = parseFloat(volumeData.volume24h.replace('$', ''));
+            const tvlNum = poolTVL; // poolTVL is already a number
+            const feeRate = 0.003; // 0.3% fee
+            const dailyFees = volume24hNum * feeRate;
+            const apr = tvlNum > 0 ? ((dailyFees * 365) / tvlNum) * 100 : 0;
+
+            // Calculate user's position value using BigInt arithmetic to avoid precision issues
+            const lpBalanceRaw = BigInt(Math.round(parseFloat(userPosition.lpTokenBalance) * Math.pow(10, 18)));
+            const totalSupply = await poolClient.supply();
+            let totalSupplyRaw = BigInt(0);
+            if (totalSupply && typeof totalSupply === "object" && "result" in totalSupply) {
+              totalSupplyRaw = BigInt(totalSupply.result);
+            }
             
-            try {
-              const isXlmPoolResult = await poolClient.is_xlm_pool();
-              if (isXlmPoolResult && typeof isXlmPoolResult === "object" && "result" in isXlmPoolResult) {
-                isXlmPool = isXlmPoolResult.result || false;
-              } else if (typeof isXlmPoolResult === "boolean") {
-                isXlmPool = isXlmPoolResult;
-              }
+            // Calculate share using BigInt arithmetic: (lpBalance * 10000) / totalSupply (in basis points)
+            const shareBasisPoints = totalSupplyRaw > 0 ? Number((lpBalanceRaw * BigInt(10000)) / totalSupplyRaw) : 0;
+            const share = shareBasisPoints / 100; // Convert from basis points to percentage
+            
+            const positionValue = totalSupplyRaw > 0 ? (Number(lpBalanceRaw) / Number(totalSupplyRaw)) * tvlNum : 0;
 
-              if (isXlmPool) {
-                const xlmTokenIndexResult = await poolClient.get_xlm_token_index();
-                if (xlmTokenIndexResult && typeof xlmTokenIndexResult === "object" && "result" in xlmTokenIndexResult) {
-                  xlmTokenIndex = xlmTokenIndexResult.result;
-                } else if (typeof xlmTokenIndexResult === "number") {
-                  xlmTokenIndex = xlmTokenIndexResult;
-                }
+            // Calculate fees earned (24h estimate)
+            const userShare = share / 100;
+            const fees24h = dailyFees * userShare;
+
+            // Format share with better precision for small amounts
+            let shareDisplay = "0.00%";
+            if (share > 0) {
+              if (share >= 0.01) {
+                shareDisplay = `${share.toFixed(2)}%`;
+              } else if (share >= 0.0001) {
+                shareDisplay = `${share.toFixed(4)}%`;
+              } else if (share >= 0.000001) {
+                shareDisplay = `${share.toFixed(6)}%`;
+              } else {
+                shareDisplay = `< 0.000001%`;
               }
-            } catch (error) {
-              console.log("Could not determine if pool is XLM pool:", error);
             }
 
-            // Get LP token balance
-            const lpBalance = await fetchLPBalance(poolAddress);
+            const xlmToken = availableTokens.find(t => t.symbol === "XLM")!;
 
-            // Calculate TVL and other metrics for XLM pool
-            const reserveAValue = Number(reserves[0]) / Math.pow(10, 7); // XLM (7 decimals)
-            const reserveBValue = Number(reserves[1]) / Math.pow(10, token.decimals); // Custom token
-            const tvl = (reserveAValue * 0.12 + reserveBValue * 0.001).toFixed(2); // Assuming XLM = $0.12, custom token = $0.001
-
-            // Determine token order for XLM pool
-            let tokenA: LiquidityToken;
-            let tokenB: LiquidityToken;
-
-            if (isXlmPool && xlmTokenIndex === 0) {
-              // XLM is token A
-              tokenA = {
-                symbol: "XLM",
-                name: "Stellar Lumens",
-                image: "/xlm.svg",
-                contractAddress: "native", // Use "native" consistently
-                balance: "0",
-                decimals: 7,
-                isNativeXLM: true,
-              };
-              tokenB = {
-                symbol: token.symbol,
-                name: token.name,
-                image: token.image,
-                contractAddress: token.contractAddress,
-                balance: "0",
-                decimals: token.decimals,
-                isNativeXLM: false,
-              };
-            } else {
-              // Custom token is token A, XLM is token B
-              tokenA = {
-                symbol: token.symbol,
-                name: token.name,
-                image: token.image,
-                contractAddress: token.contractAddress,
-                balance: "0",
-                decimals: token.decimals,
-                isNativeXLM: false,
-              };
-              tokenB = {
-                symbol: "XLM",
-                name: "Stellar Lumens",
-                image: "/xlm.svg",
-                contractAddress: "native", // Use "native" consistently
-                balance: "0",
-                decimals: 7,
-                isNativeXLM: true,
-              };
-            }
-
-            const poolData: PoolData = {
-              id: poolAddress,
+            const pool: PoolData = {
+              id: `${token.symbol}/XLM`,
               poolAddress,
-              tokenA,
-              tokenB,
+              tokenA: token,
+              tokenB: xlmToken,
               reserves,
-              tvl: `$${tvl}M`,
-              apr: "12.5%",
-              volume24h: "$125K",
-              myLiquidity: "0",
-              myShare: "0%",
-              fees24h: "$45",
-              lpTokenBalance: lpBalance,
-              isXlmPool: true,
-              xlmTokenIndex,
+              tvl: tvlNum,
+              apr: `${apr.toFixed(2)}%`,
+              volume24h: volumeData.volume24h,
+              myLiquidity: `$${positionValue.toFixed(2)}`,
+              myShare: shareDisplay,
+              fees24h: `$${fees24h.toFixed(2)}`,
+              unclaimedFees: `$${parseFloat(unclaimedFees).toFixed(6)}`,
+              lpTokenBalance: userPosition.lpTokenBalance,
+              isXlmPool,
+              xlmTokenIndex
             };
 
-            pools.push(poolData);
+            pools.push(pool);
           }
         } catch (error) {
-          console.error(`Error fetching XLM pool for token ${token.symbol}:`, error);
+          console.error(`Error fetching pool for ${token.symbol}:`, error);
         }
       }
 
       setPools(pools);
     } catch (error) {
-      console.error("Error fetching pools:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load pools",
-        variant: "destructive",
-      });
+      console.error("Failed to fetch pools:", error);
+      setError("Failed to load pools");
     } finally {
       setIsLoadingPools(false);
     }
@@ -1336,42 +1304,15 @@ export default function LiquidityPage() {
         contractId: selectedPool.poolAddress,
       });
 
-      // Calculate LP token amount in raw format (18 decimals) with better precision
-      // Use integer arithmetic to avoid floating point precision issues
-      const userBalanceRaw = BigInt(Math.floor(lpBalance * Math.pow(10, 18)));
-      const percentageRaw = BigInt(removePercentage);
-      const percentageDenominator = BigInt(100);
-      
-      // Calculate amount using integer arithmetic: (userBalance * percentage) / 100
-      const lpAmountRaw = (userBalanceRaw * percentageRaw) / percentageDenominator;
-
-      // Additional validation to prevent overflow and ensure positive amounts
-      if (lpAmountRaw <= BigInt(0)) {
-        throw new Error("Invalid LP token amount - must be greater than 0");
-      }
-
-      // Check if amount is too large (more than user's balance)
-      if (lpAmountRaw > userBalanceRaw) {
-        throw new Error(`Cannot remove more LP tokens than you own. You have ${lpBalance} LP tokens.`);
-      }
-
-      // Ensure the amount is reasonable (at least 1 LP token in raw format)
-      const minLpAmountRaw = BigInt(Math.pow(10, 18) * 0.000001); // Minimum 0.000001 LP tokens
-      if (lpAmountRaw < minLpAmountRaw) {
-        throw new Error("Amount too small. Minimum amount is 0.000001 LP tokens");
-      }
-
-      // Additional validation: ensure the amount is at least 1% of user's balance to prevent dust
-      const userBalancePercentage = Number(lpAmountRaw) / Number(userBalanceRaw);
-      if (userBalancePercentage < 0.01) { // Less than 1%
-        throw new Error("Amount too small relative to your balance. Please remove at least 1% of your liquidity.");
-      }
-
       // Debug: Check current pool state before removal
+      let reserves: any;
+      let totalSupply: any;
+      let userBalance: any;
+      
       try {
-        const reserves = await poolClient.get_reserves();
-        const totalSupply = await poolClient.supply();
-        const userBalance = await poolClient.balance_of({ id: publicKey });
+        reserves = await poolClient.get_reserves();
+        totalSupply = await poolClient.supply();
+        userBalance = await poolClient.balance_of({ id: publicKey });
         
         console.log("Debug - Remove liquidity pool state:", {
           reserveA: reserves.result[0].toString(),
@@ -1402,20 +1343,6 @@ export default function LiquidityPage() {
           throw new Error("Pool has no total supply");
         }
 
-        // Additional validation: ensure the amount is not too small relative to total supply
-        // This prevents precision issues that could cause zero amounts
-        const reserveANum = Number(reserves.result[0]);
-        const reserveBNum = Number(reserves.result[1]);
-        
-        // Calculate expected amounts to validate using integer arithmetic
-        const expectedAmountA = (Number(lpAmountRaw) * reserveANum) / totalSupplyNum;
-        const expectedAmountB = (Number(lpAmountRaw) * reserveBNum) / totalSupplyNum;
-        
-        // If both amounts would be zero, that's a problem
-        if (expectedAmountA === 0 && expectedAmountB === 0) {
-          throw new Error("Amount too small - would result in zero tokens returned");
-        }
-
       } catch (error) {
         console.error("Error getting pool state:", error);
         if (error instanceof Error) {
@@ -1424,24 +1351,126 @@ export default function LiquidityPage() {
         throw new Error("Failed to get pool state");
       }
 
+      // Calculate LP token amount using the actual user balance from the contract
+      // This ensures we're using the exact balance as stored in the contract
+      const actualUserBalanceRaw = BigInt(userBalance.result);
+      const percentageRaw = BigInt(removePercentage);
+      const percentageDenominator = BigInt(100);
+      
+      // Calculate amount using integer arithmetic: (userBalance * percentage) / 100
+      const lpAmountRaw = (actualUserBalanceRaw * percentageRaw) / percentageDenominator;
+
+      // Additional validation to prevent overflow and ensure positive amounts
+      if (lpAmountRaw <= BigInt(0)) {
+        throw new Error("Invalid LP token amount - must be greater than 0");
+      }
+
+      // Check if amount is too large (more than user's balance)
+      if (lpAmountRaw > actualUserBalanceRaw) {
+        throw new Error(`Cannot remove more LP tokens than you own. You have ${lpBalance} LP tokens.`);
+      }
+
+      // Ensure the amount is reasonable (at least 1 LP token in raw format)
+      const minLpAmountRaw = BigInt(Math.pow(10, 18) * 0.000001); // Minimum 0.000001 LP tokens
+      if (lpAmountRaw < minLpAmountRaw) {
+        throw new Error("Amount too small. Minimum amount is 0.000001 LP tokens");
+      }
+
+      // Additional validation: ensure the amount is at least 1% of user's balance to prevent dust
+      const userBalancePercentage = Number(lpAmountRaw) / Number(actualUserBalanceRaw);
+      if (userBalancePercentage < 0.01) { // Less than 1%
+        throw new Error("Amount too small relative to your balance. Please remove at least 1% of your liquidity.");
+      }
+
+      // Calculate expected amounts using BigInt arithmetic to avoid precision issues
+      const reserveARaw = BigInt(reserves.result[0]);
+      const reserveBRaw = BigInt(reserves.result[1]);
+      const totalSupplyRaw = BigInt(totalSupply.result);
+      
+      // Calculate expected amounts using BigInt arithmetic: (lpAmount * reserve) / totalSupply
+      const expectedAmountARaw = (lpAmountRaw * reserveARaw) / totalSupplyRaw;
+      const expectedAmountBRaw = (lpAmountRaw * reserveBRaw) / totalSupplyRaw;
+      
+      // Convert to numbers for validation (but keep precision)
+      const expectedAmountA = Number(expectedAmountARaw);
+      const expectedAmountB = Number(expectedAmountBRaw);
+      
+      // If both amounts would be zero, that's a problem
+      if (expectedAmountA === 0 && expectedAmountB === 0) {
+        throw new Error("Amount too small - would result in zero tokens returned");
+      }
+
+      // Additional validation: ensure the amount is not too small relative to total supply
+      // This prevents precision issues that could cause zero amounts
+      const userShareOfTotal = Number(lpAmountRaw) / Number(totalSupply.result);
+      if (userShareOfTotal < 0.000001) { // Less than 0.0001% of total supply
+        throw new Error("Amount too small relative to total supply. Please remove a larger percentage.");
+      }
+
+      // For very small amounts, try to use a minimum amount that will result in at least 1 token unit
+      // This prevents the contract from calculating zero amounts
+      let finalLpAmountRaw = lpAmountRaw;
+      if (expectedAmountA < 1 && expectedAmountB < 1) {
+        // Calculate the minimum amount needed to get at least 1 unit of each token
+        // Use multiplication instead of division to avoid zero results
+        let minAmountNeeded = BigInt(0);
+        
+        if (reserveARaw > 0) {
+          // Calculate minimum LP tokens needed for token A: (1 * totalSupply) / reserveA
+          const minForTokenA = (BigInt(1) * totalSupplyRaw) / reserveARaw;
+          minAmountNeeded = minForTokenA;
+        }
+        
+        if (reserveBRaw > 0) {
+          // Calculate minimum LP tokens needed for token B: (1 * totalSupply) / reserveB
+          const minForTokenB = (BigInt(1) * totalSupplyRaw) / reserveBRaw;
+          // Use the larger of the two minimums to ensure both tokens get at least 1 unit
+          if (minForTokenB > minAmountNeeded) {
+            minAmountNeeded = minForTokenB;
+          }
+        }
+        
+        // Ensure we don't exceed user's balance
+        if (minAmountNeeded > actualUserBalanceRaw) {
+          throw new Error("Your balance is too small to remove any meaningful amount of liquidity.");
+        }
+        
+        // Use the minimum amount needed, but don't exceed user's balance
+        finalLpAmountRaw = minAmountNeeded > actualUserBalanceRaw ? actualUserBalanceRaw : minAmountNeeded;
+        
+        console.log("Debug - Adjusted LP amount for minimum token return:", {
+          originalAmount: lpAmountRaw.toString(),
+          adjustedAmount: finalLpAmountRaw.toString(),
+          minAmountNeeded: minAmountNeeded.toString(),
+          userBalance: actualUserBalanceRaw.toString(),
+          reserveA: reserveARaw.toString(),
+          reserveB: reserveBRaw.toString(),
+          totalSupply: totalSupplyRaw.toString()
+        });
+      }
+
       console.log("Debug - Remove liquidity:", {
         poolAddress: selectedPool.poolAddress,
-        lpAmountToRemove: lpAmountToRemove,
-        lpAmountRaw: lpAmountRaw.toString(),
+        finalLpAmountRaw: finalLpAmountRaw.toString(),
         percentage: removePercentage,
         isXlmPool: selectedPool.isXlmPool,
         userPublicKey: publicKey,
         poolTokenA: selectedPool.tokenA.symbol,
         poolTokenB: selectedPool.tokenB.symbol,
-        userBalanceRaw: userBalanceRaw.toString(),
+        actualUserBalanceRaw: actualUserBalanceRaw.toString(),
         minLpAmountRaw: minLpAmountRaw.toString(),
         userBalancePercentage: (userBalancePercentage * 100).toFixed(2) + "%",
-        calculation: `(${userBalanceRaw} * ${percentageRaw}) / ${percentageDenominator} = ${lpAmountRaw}`
+        userShareOfTotal: (userShareOfTotal * 100).toFixed(6) + "%",
+        expectedAmountARaw: expectedAmountARaw.toString(),
+        expectedAmountBRaw: expectedAmountBRaw.toString(),
+        expectedAmountA,
+        expectedAmountB,
+        calculation: `(${actualUserBalanceRaw} * ${percentageRaw}) / ${percentageDenominator} = ${finalLpAmountRaw}`
       });
 
       const removeLiquidityTx = await poolClient.remove_liquidity({
         caller: publicKey,
-        liquidity: lpAmountRaw,
+        liquidity: finalLpAmountRaw,
       });
       await removeLiquidityTx.signAndSend();
 
@@ -1474,17 +1503,34 @@ export default function LiquidityPage() {
   // Fetch data on component mount
   useEffect(() => {
     const initializeData = async () => {
-      await fetchAvailableTokens();
+      setIsLoadingTokens(true);
+      try {
+        await fetchAvailableTokens();
+      } catch (error) {
+        console.error("Error initializing data:", error);
+      } finally {
+        setIsLoadingTokens(false);
+      }
     };
     initializeData();
   }, []);
 
-  // Fetch pools when tokens are available
+  // Fetch pools when tokens are available and when public key changes
   useEffect(() => {
-    if (availableTokens.length > 0) {
+    if (availableTokens.length > 0 && publicKey && !isLoadingPools && !poolsLoadedRef.current && !initialLoadComplete) {
+      poolsLoadedRef.current = true;
+      setInitialLoadComplete(true);
       fetchAllPools();
     }
-  }, [availableTokens]);
+  }, [availableTokens.length, publicKey, initialLoadComplete]);
+
+  // Reset pools loaded ref when public key changes
+  useEffect(() => {
+    if (publicKey) {
+      poolsLoadedRef.current = false;
+      setInitialLoadComplete(false);
+    }
+  }, [publicKey]);
 
   // Fetch balances when public key changes
   useEffect(() => {
@@ -1528,7 +1574,7 @@ export default function LiquidityPage() {
 
   // Update pool balances when a pool is selected
   useEffect(() => {
-    if (selectedPool && publicKey) {
+    if (selectedPool && publicKey && !isLoadingBalances) {
       const updatePoolBalances = async () => {
         const updatedPool = {
           ...selectedPool,
@@ -1548,29 +1594,213 @@ export default function LiquidityPage() {
     }
   }, [selectedPool?.id, publicKey]);
 
-  // Update all pool balances when public key changes
-  useEffect(() => {
-    if (publicKey && pools.length > 0) {
-      const updateAllPoolBalances = async () => {
-        const updatedPools = await Promise.all(
-          pools.map(async (pool) => ({
-            ...pool,
-            tokenA: {
-              ...pool.tokenA,
-              balance: await fetchTokenBalance(pool.tokenA.contractAddress, pool.tokenA.decimals, pool.tokenA.isNativeXLM),
-            },
-            tokenB: {
-              ...pool.tokenB,
-              balance: await fetchTokenBalance(pool.tokenB.contractAddress, pool.tokenB.decimals, pool.tokenB.isNativeXLM),
-            },
-            lpTokenBalance: await fetchLPBalance(pool.poolAddress),
-          }))
-        );
-        setPools(updatedPools);
-      };
-      updateAllPoolBalances();
+  // Fetch user's unclaimed fees for a pool
+  const fetchUnclaimedFees = async (poolAddress: string): Promise<string> => {
+    if (!publicKey) return "0";
+
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const feesResult = await poolClient.get_user_unclaimed_fees({
+        user: publicKey
+      });
+
+      let fees = BigInt(0);
+      if (feesResult && typeof feesResult === "object" && "result" in feesResult) {
+        fees = BigInt(feesResult.result || 0);
+      } else if (typeof feesResult === "string" || typeof feesResult === "number") {
+        fees = BigInt(feesResult);
+      }
+
+      // Convert to human readable format with 6 decimal places (USDC decimals)
+      const humanReadableFees = Number(fees) / Math.pow(10, 6);
+      return humanReadableFees.toFixed(6);
+    } catch (error) {
+      console.error("Error fetching unclaimed fees:", error);
+      return "0";
     }
-  }, [publicKey, pools.length]);
+  };
+
+  // Claim fees from a pool
+  const claimFees = async (poolAddress: string): Promise<string> => {
+    if (!publicKey) return "0";
+
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const claimResult = await poolClient.claim_fees({
+        caller: publicKey
+      });
+
+      let claimedAmount = BigInt(0);
+      if (claimResult && typeof claimResult === "object" && "result" in claimResult) {
+        claimedAmount = BigInt(claimResult.result || 0);
+      } else if (typeof claimResult === "string" || typeof claimResult === "number") {
+        claimedAmount = BigInt(claimResult);
+      }
+
+      // Convert to human readable format with 6 decimal places (USDC decimals)
+      const humanReadableAmount = Number(claimedAmount) / Math.pow(10, 6);
+      return humanReadableAmount.toFixed(6);
+    } catch (error) {
+      console.error("Error claiming fees:", error);
+      throw error;
+    }
+  };
+
+  // Fetch user's detailed liquidity position
+  const fetchUserLiquidityPosition = async (poolAddress: string): Promise<{ tokenABalance: string; tokenBBalance: string; lpTokenBalance: string }> => {
+    if (!publicKey) return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0" };
+
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const positionResult = await poolClient.get_user_liquidity_position({
+        user: publicKey
+      });
+
+      let tokenABalance = BigInt(0);
+      let tokenBBalance = BigInt(0);
+      let lpTokenBalance = BigInt(0);
+
+      if (positionResult && typeof positionResult === "object" && "result" in positionResult) {
+        const result = positionResult.result;
+        if (Array.isArray(result) && result.length === 3) {
+          tokenABalance = BigInt(result[0]);
+          tokenBBalance = BigInt(result[1]);
+          lpTokenBalance = BigInt(result[2]);
+        }
+      }
+
+      return {
+        tokenABalance: (Number(tokenABalance) / Math.pow(10, 18)).toFixed(6),
+        tokenBBalance: (Number(tokenBBalance) / Math.pow(10, 6)).toFixed(6), // Assuming token B is USDC
+        lpTokenBalance: (Number(lpTokenBalance) / Math.pow(10, 18)).toFixed(6)
+      };
+    } catch (error) {
+      console.error("Error fetching user liquidity position:", error);
+      return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0" };
+    }
+  };
+
+  // Fetch pool volume data
+  const fetchPoolVolume = async (poolAddress: string): Promise<{ volume24h: string; volume7d: string; volumeAllTime: string }> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const [volume24hResult, volume7dResult, volumeAllTimeResult] = await Promise.all([
+        poolClient.get_total_volume_24h(),
+        poolClient.get_total_volume_7d(),
+        poolClient.get_total_volume_all_time()
+      ]);
+
+      const volume24h = volume24hResult && typeof volume24hResult === "object" && "result" in volume24hResult 
+        ? Number(volume24hResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volume7d = volume7dResult && typeof volume7dResult === "object" && "result" in volume7dResult 
+        ? Number(volume7dResult.result) / Math.pow(10, 6) 
+        : 0;
+      const volumeAllTime = volumeAllTimeResult && typeof volumeAllTimeResult === "object" && "result" in volumeAllTimeResult 
+        ? Number(volumeAllTimeResult.result) / Math.pow(10, 6) 
+        : 0;
+
+      return {
+        volume24h: `$${volume24h.toFixed(2)}`,
+        volume7d: `$${volume7d.toFixed(2)}`,
+        volumeAllTime: `$${volumeAllTime.toFixed(2)}`
+      };
+    } catch (error) {
+      console.error("Error fetching pool volume:", error);
+      return {
+        volume24h: "$0",
+        volume7d: "$0",
+        volumeAllTime: "$0"
+      };
+    }
+  };
+
+  // Fetch pool TVL
+  const fetchPoolTVL = async (poolAddress: string): Promise<number> => {
+    try {
+      const poolClient = new PoolClient({
+        contractId: poolAddress,
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        allowHttp: true,
+      });
+
+      const tvlResult = await poolClient.get_pool_tvl();
+
+      let tvl = BigInt(0);
+      if (tvlResult && typeof tvlResult === "object" && "result" in tvlResult) {
+        tvl = BigInt(tvlResult.result || 0);
+      } else if (typeof tvlResult === "string" || typeof tvlResult === "number") {
+        tvl = BigInt(tvlResult);
+      }
+
+      // Convert to human readable format with 6 decimal places (USDC decimals)
+      return Number(tvl) / Math.pow(10, 6);
+    } catch (error) {
+      console.error("Error fetching pool TVL:", error);
+      return 0;
+    }
+  };
+
+  // Handle fee claiming
+  const handleClaimFees = async (poolAddress: string) => {
+    if (!publicKey) {
+      toast({
+        title: "Error",
+        description: "Please connect your wallet first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsRemovingLiquidity(true);
+      
+      const claimedAmount = await claimFees(poolAddress);
+      
+      toast({
+        title: "Success",
+        description: `Successfully claimed $${claimedAmount} in fees`,
+        variant: "default",
+      });
+
+      // Refresh pool data
+      await fetchAllPools();
+    } catch (error) {
+      console.error("Error claiming fees:", error);
+      toast({
+        title: "Error",
+        description: "Failed to claim fees. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRemovingLiquidity(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
@@ -1626,12 +1856,28 @@ export default function LiquidityPage() {
                 <Droplets className="w-8 h-8 text-blue-400 animate-pulse" />
               </div>
             </div>
-            <p className="text-gray-300 text-lg">Loading pools and tokens...</p>
-            <p className="text-gray-500 text-sm mt-2">This may take a few moments</p>
+            <p className="text-gray-300 text-lg">
+              {isLoadingTokens ? "Loading tokens..." : "Loading pools and user data..."}
+            </p>
+            <p className="text-gray-500 text-sm mt-2">
+              {isLoadingTokens ? "Fetching available tokens from the network" : "This may take a few moments"}
+            </p>
           </div>
         )}
 
-        {!isLoadingPools && !isLoadingTokens && (
+        {!isLoadingPools && !isLoadingTokens && !publicKey && (
+          <div className="text-center py-12">
+            <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Droplets className="w-8 h-8 text-gray-400" />
+            </div>
+            <p className="text-gray-300 mb-2 font-medium">Connect your wallet to view pools</p>
+            <p className="text-sm text-gray-500 mb-6 max-w-md mx-auto">
+              Your wallet needs to be connected to load your liquidity positions and pool data.
+            </p>
+          </div>
+        )}
+
+        {!isLoadingPools && !isLoadingTokens && publicKey && (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 max-w-7xl mx-auto">
             {/* Pool Selection */}
             <div className="space-y-6">
@@ -1644,6 +1890,7 @@ export default function LiquidityPage() {
                     </Badge>
                     <Button
                       onClick={() => {
+                        poolsLoadedRef.current = false;
                         fetchAllPools();
                         fetchAvailableTokens();
                       }}
@@ -1728,7 +1975,7 @@ export default function LiquidityPage() {
                                 {pool.tokenA.symbol}/{pool.tokenB.symbol}
                               </div>
                               <div className="text-xs lg:text-sm text-gray-400 flex items-center space-x-2">
-                                <span>{pool.tvl}</span>
+                                <span>{formatLargeNumber(pool.tvl)}</span>
                                 <span>•</span>
                                 <span className="text-green-400">{pool.apr} APR</span>
                                 {Number(pool.reserves[0]) === 0 && Number(pool.reserves[1]) === 0 && (
@@ -1816,7 +2063,9 @@ export default function LiquidityPage() {
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-gray-400 text-sm">TVL</span>
-                            <span className="font-semibold text-green-400">{selectedPool.tvl}</span>
+                            <span className="font-semibold text-green-400">
+                              {selectedPool ? formatLargeNumber(selectedPool.tvl) : "$0"}
+                            </span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-gray-400 text-sm">APR</span>
@@ -1839,6 +2088,21 @@ export default function LiquidityPage() {
                           <div className="flex justify-between items-center">
                             <span className="text-gray-400 text-sm">Fees 24h</span>
                             <span className="font-semibold text-yellow-400">{selectedPool.fees24h}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-400 text-sm">Unclaimed Fees</span>
+                            <span className="font-semibold text-green-400">
+                              {isLoadingBalances ? (
+                                <div className="flex items-center space-x-1">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  <span>Loading...</span>
+                                </div>
+                              ) : selectedPool ? (
+                                selectedPool.unclaimedFees
+                              ) : (
+                                "$0.00"
+                              )}
+                            </span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-gray-400 text-sm">LP Token Supply</span>
@@ -2056,6 +2320,29 @@ export default function LiquidityPage() {
                 </Card>
               )}
 
+              {/* Claim Fees Button */}
+              {selectedPool && (
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <Button
+                    onClick={() => handleClaimFees(selectedPool.poolAddress)}
+                    disabled={isRemovingLiquidity || isLoadingBalances}
+                    className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold rounded-xl"
+                  >
+                    {isRemovingLiquidity ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Claiming Fees...
+                      </>
+                    ) : (
+                      <>
+                        <DollarSign className="w-4 h-4 mr-2" />
+                        Claim Unclaimed Fees
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+
               {/* Remove Liquidity Card */}
               {selectedPool && parseFloat(selectedPool.lpTokenBalance) > 0 && (
                 <Card className="bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl">
@@ -2148,4 +2435,3 @@ export default function LiquidityPage() {
     </div>
   )
 }
-

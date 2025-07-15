@@ -10,7 +10,7 @@ if (typeof window !== 'undefined') {
 export const networks = {
     testnet: {
         networkPassphrase: "Test SDF Network ; September 2015",
-        contractId: "CBV4E3VRHLF7W6MYNK2YNY6WUJXZWMALXHN2VLUSSTNGQBBJ5TRFVA7X",
+        contractId: "CASD6PI5A62PTEWPTRM2HHBZGA53DMCHFDTU4UITEUT5VCWYUXI75SVJ",
     }
 };
 export class Client extends ContractClient {
@@ -23,18 +23,22 @@ export class Client extends ContractClient {
         return ContractClient.deploy({ admin }, options);
     }
     constructor(options) {
-        super(new ContractSpec(["AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAAAwAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAAMUG9vbFdhc21IYXNoAAAAAQAAAAAAAAANRGVwbG95ZWRQb29scwAAAAAAAAIAAAATAAAAEw==",
+        super(new ContractSpec(["AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAABAAAAAAAAAAAAAAABUFkbWluAAAAAAAAAAAAAAAAAAAMUG9vbFdhc21IYXNoAAAAAQAAAAAAAAANRGVwbG95ZWRQb29scwAAAAAAAAIAAAATAAAAEwAAAAAAAAAAAAAACEFsbFBvb2xz",
             "AAAAAAAAAAAAAAANX19jb25zdHJ1Y3RvcgAAAAAAAAEAAAAAAAAABWFkbWluAAAAAAAAEwAAAAA=",
             "AAAAAAAAACxTZXQgdGhlIHBvb2wgY29udHJhY3QgV2FzbSBoYXNoIChhZG1pbiBvbmx5KQAAABV1cGRhdGVfcG9vbF93YXNtX2hhc2gAAAAAAAACAAAAAAAAAAphZG1pbl9hZGRyAAAAAAATAAAAAAAAAAhuZXdfaGFzaAAAA+4AAAAgAAAAAA==",
             "AAAAAAAAAB9HZXQgdGhlIHBvb2wgY29udHJhY3QgV2FzbSBoYXNoAAAAABJnZXRfcG9vbF93YXNtX2hhc2gAAAAAAAAAAAABAAAD7gAAACA=",
             "AAAAAAAAADxEZXBsb3kgYSBuZXcgcG9vbCBmb3IgYSB0b2tlbiBwYWlyLCByZXZlcnQgaWYgYWxyZWFkeSBleGlzdHMAAAALY3JlYXRlX3Bvb2wAAAAABQAAAAAAAAAHdG9rZW5fYQAAAAATAAAAAAAAAAd0b2tlbl9iAAAAABMAAAAAAAAADWxwX3Rva2VuX25hbWUAAAAAAAAQAAAAAAAAAA9scF90b2tlbl9zeW1ib2wAAAAAEAAAAAAAAAAEc2FsdAAAA+4AAAAgAAAAAQAAABM=",
-            "AAAAAAAAADxHZXQgdGhlIHBvb2wgYWRkcmVzcyBmb3IgYSB0b2tlbiBwYWlyLCBvciBOb25lIGlmIG5vdCBleGlzdHMAAAAIZ2V0X3Bvb2wAAAACAAAAAAAAAAd0b2tlbl9hAAAAABMAAAAAAAAAB3Rva2VuX2IAAAAAEwAAAAEAAAPoAAAAEw=="]), options);
+            "AAAAAAAAADxHZXQgdGhlIHBvb2wgYWRkcmVzcyBmb3IgYSB0b2tlbiBwYWlyLCBvciBOb25lIGlmIG5vdCBleGlzdHMAAAAIZ2V0X3Bvb2wAAAACAAAAAAAAAAd0b2tlbl9hAAAAABMAAAAAAAAAB3Rva2VuX2IAAAAAEwAAAAEAAAPoAAAAEw==",
+            "AAAAAAAAABZHZXQgYWxsIGRlcGxveWVkIHBvb2xzAAAAAAANZ2V0X2FsbF9wb29scwAAAAAAAAAAAAABAAAD6gAAABM=",
+            "AAAAAAAAABlHZXQgdG90YWwgbnVtYmVyIG9mIHBvb2xzAAAAAAAADmdldF9wb29sX2NvdW50AAAAAAAAAAAAAQAAAAQ="]), options);
         this.options = options;
     }
     fromJSON = {
         update_pool_wasm_hash: (this.txFromJSON),
         get_pool_wasm_hash: (this.txFromJSON),
         create_pool: (this.txFromJSON),
-        get_pool: (this.txFromJSON)
+        get_pool: (this.txFromJSON),
+        get_all_pools: (this.txFromJSON),
+        get_pool_count: (this.txFromJSON)
     };
 }

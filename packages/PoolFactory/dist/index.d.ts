@@ -1,13 +1,13 @@
 import { Buffer } from "buffer";
 import { AssembledTransaction, Client as ContractClient, ClientOptions as ContractClientOptions, MethodOptions } from '@stellar/stellar-sdk/contract';
-import type { Option } from '@stellar/stellar-sdk/contract';
+import type { u32, Option } from '@stellar/stellar-sdk/contract';
 export * from '@stellar/stellar-sdk';
 export * as contract from '@stellar/stellar-sdk/contract';
 export * as rpc from '@stellar/stellar-sdk/rpc';
 export declare const networks: {
     readonly testnet: {
         readonly networkPassphrase: "Test SDF Network ; September 2015";
-        readonly contractId: "CBV4E3VRHLF7W6MYNK2YNY6WUJXZWMALXHN2VLUSSTNGQBBJ5TRFVA7X";
+        readonly contractId: "CASD6PI5A62PTEWPTRM2HHBZGA53DMCHFDTU4UITEUT5VCWYUXI75SVJ";
     };
 };
 export type DataKey = {
@@ -19,6 +19,9 @@ export type DataKey = {
 } | {
     tag: "DeployedPools";
     values: readonly [string, string];
+} | {
+    tag: "AllPools";
+    values: void;
 };
 export interface Client {
     /**
@@ -105,6 +108,42 @@ export interface Client {
          */
         simulate?: boolean;
     }) => Promise<AssembledTransaction<Option<string>>>;
+    /**
+     * Construct and simulate a get_all_pools transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Get all deployed pools
+     */
+    get_all_pools: (options?: {
+        /**
+         * The fee to pay for the transaction. Default: BASE_FEE
+         */
+        fee?: number;
+        /**
+         * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+         */
+        timeoutInSeconds?: number;
+        /**
+         * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+         */
+        simulate?: boolean;
+    }) => Promise<AssembledTransaction<Array<string>>>;
+    /**
+     * Construct and simulate a get_pool_count transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+     * Get total number of pools
+     */
+    get_pool_count: (options?: {
+        /**
+         * The fee to pay for the transaction. Default: BASE_FEE
+         */
+        fee?: number;
+        /**
+         * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+         */
+        timeoutInSeconds?: number;
+        /**
+         * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+         */
+        simulate?: boolean;
+    }) => Promise<AssembledTransaction<u32>>;
 }
 export declare class Client extends ContractClient {
     readonly options: ContractClientOptions;
@@ -128,5 +167,7 @@ export declare class Client extends ContractClient {
         get_pool_wasm_hash: (json: string) => AssembledTransaction<Buffer<ArrayBufferLike>>;
         create_pool: (json: string) => AssembledTransaction<string>;
         get_pool: (json: string) => AssembledTransaction<Option<string>>;
+        get_all_pools: (json: string) => AssembledTransaction<string[]>;
+        get_pool_count: (json: string) => AssembledTransaction<number>;
     };
 }
