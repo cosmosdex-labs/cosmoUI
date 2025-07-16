@@ -305,8 +305,8 @@ export default function PortfolioPage() {
   };
 
   // Fetch user's detailed liquidity position
-  const fetchUserLiquidityPosition = async (poolAddress: string): Promise<{ tokenABalance: string; tokenBBalance: string; lpTokenBalance: string }> => {
-    if (!publicKey) return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0" };
+  const fetchUserLiquidityPosition = async (poolAddress: string): Promise<{ tokenABalance: string; tokenBBalance: string; lpTokenBalance: string; lpTokenBalanceRaw: bigint }> => {
+    if (!publicKey) return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0", lpTokenBalanceRaw: BigInt(0) };
 
     try {
       const poolClient = new PoolClient({
@@ -316,31 +316,60 @@ export default function PortfolioPage() {
         allowHttp: true,
       });
 
-      const positionResult = await poolClient.get_user_liquidity_position({
-        user: publicKey
+      // Try to get detailed position first
+      try {
+        const positionResult = await poolClient.get_user_liquidity_position({
+          user: publicKey
+        });
+
+        let tokenABalance = BigInt(0);
+        let tokenBBalance = BigInt(0);
+        let lpTokenBalance = BigInt(0);
+
+        if (positionResult && typeof positionResult === "object" && "result" in positionResult) {
+          const result = positionResult.result;
+          if (Array.isArray(result) && result.length === 3) {
+            // Contract returns: (user_balance, user_token_a, user_token_b)
+            // user_balance = LP token balance (index 0)
+            // user_token_a = user's share of token A (index 1)
+            // user_token_b = user's share of token B (index 2)
+            lpTokenBalance = BigInt(result[0]); // LP token balance
+            tokenABalance = BigInt(result[1]);  // Token A balance
+            tokenBBalance = BigInt(result[2]);  // Token B balance
+          }
+        }
+
+        return {
+          tokenABalance: (Number(tokenABalance) / Math.pow(10, 18)).toFixed(6),
+          tokenBBalance: (Number(tokenBBalance) / Math.pow(10, 6)).toFixed(6), // Assuming token B is USDC
+          lpTokenBalance: (Number(lpTokenBalance) / Math.pow(10, 18)).toFixed(6),
+          lpTokenBalanceRaw: lpTokenBalance
+        };
+      } catch (positionError) {
+        console.warn("get_user_liquidity_position failed, falling back to direct balance fetch:", positionError);
+      }
+
+      // Fallback: Get LP token balance directly
+      const balanceResult = await poolClient.balance_of({
+        id: publicKey
       });
 
-      let tokenABalance = BigInt(0);
-      let tokenBBalance = BigInt(0);
       let lpTokenBalance = BigInt(0);
-
-      if (positionResult && typeof positionResult === "object" && "result" in positionResult) {
-        const result = positionResult.result;
-        if (Array.isArray(result) && result.length === 3) {
-          tokenABalance = BigInt(result[0]);
-          tokenBBalance = BigInt(result[1]);
-          lpTokenBalance = BigInt(result[2]);
-        }
+      if (balanceResult && typeof balanceResult === "object" && "result" in balanceResult) {
+        lpTokenBalance = BigInt(balanceResult.result || 0);
+      } else if (typeof balanceResult === "string" || typeof balanceResult === "number") {
+        lpTokenBalance = BigInt(balanceResult);
       }
 
       return {
-        tokenABalance: (Number(tokenABalance) / Math.pow(10, 18)).toFixed(6),
-        tokenBBalance: (Number(tokenBBalance) / Math.pow(10, 6)).toFixed(6), // Assuming token B is USDC
-        lpTokenBalance: (Number(lpTokenBalance) / Math.pow(10, 18)).toFixed(6)
+        tokenABalance: "0", // We can't calculate this without the detailed position
+        tokenBBalance: "0", // We can't calculate this without the detailed position
+        lpTokenBalance: (Number(lpTokenBalance) / Math.pow(10, 18)).toFixed(6),
+        lpTokenBalanceRaw: lpTokenBalance
       };
     } catch (error) {
       console.error("Error fetching user liquidity position:", error);
-      return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0" };
+      return { tokenABalance: "0", tokenBBalance: "0", lpTokenBalance: "0", lpTokenBalanceRaw: BigInt(0) };
     }
   };
 
@@ -547,16 +576,19 @@ export default function PortfolioPage() {
               ]);
 
               // Calculate position value using real TVL
-              const lpBalanceNum = parseFloat(lpBalance);
+              const lpBalanceRaw = userPosition.lpTokenBalanceRaw;
               const tvlNum = parseFloat(poolTVL.replace('$', '').replace('M', '').replace('K', ''));
               const totalSupply = await poolClient.supply();
-              let totalSupplyNum = 0;
+              let totalSupplyRaw = BigInt(0);
               if (totalSupply && typeof totalSupply === "object" && "result" in totalSupply) {
-                totalSupplyNum = Number(totalSupply.result) / Math.pow(10, 18);
+                totalSupplyRaw = BigInt(totalSupply.result);
               }
               
-              const positionValue = totalSupplyNum > 0 ? (lpBalanceNum / totalSupplyNum) * tvlNum : 0;
-              const share = totalSupplyNum > 0 ? ((lpBalanceNum / totalSupplyNum) * 100) : 0;
+              // Calculate share using BigInt arithmetic: (lpBalance * 10000) / totalSupply (in basis points)
+              const shareBasisPoints = totalSupplyRaw > 0 ? Number((lpBalanceRaw * BigInt(10000)) / totalSupplyRaw) : 0;
+              const share = shareBasisPoints / 100; // Convert from basis points to percentage
+              
+              const positionValue = totalSupplyRaw > 0 ? (Number(lpBalanceRaw) / Number(totalSupplyRaw)) * tvlNum : 0;
 
               // Calculate APR based on volume and fees (simplified calculation)
               const volume24hNum = parseFloat(volumeData.volume24h.replace('$', ''));
@@ -605,37 +637,6 @@ export default function PortfolioPage() {
       console.error("Failed to fetch liquidity positions:", error);
       return [];
     }
-  };
-
-  // Generate mock transaction history (since we don't have real transaction tracking yet)
-  const generateMockTransactions = (): Transaction[] => {
-    return [
-      {
-        type: "swap",
-        from: "USDC",
-        to: "PEPE",
-        amount: "500 USDC",
-        value: "$500",
-        time: "2 hours ago",
-        status: "completed",
-      },
-      {
-        type: "add_liquidity",
-        pool: "MSHIB/USDC",
-        amount: "$1,000",
-        value: "$1,000",
-        time: "1 day ago",
-        status: "completed",
-      },
-      {
-        type: "remove_liquidity",
-        pool: "PEPE/USDC",
-        amount: "$250",
-        value: "$275",
-        time: "3 days ago",
-        status: "completed",
-      },
-    ];
   };
 
   // Calculate portfolio overview
@@ -743,10 +744,6 @@ export default function PortfolioPage() {
       // Fetch liquidity positions
       const positions = await fetchLiquidityPositions(availableTokens);
       setLiquidityPositions(positions);
-
-      // Generate mock transactions
-      const mockTransactions = generateMockTransactions();
-      setTransactions(mockTransactions);
 
       // Calculate portfolio overview
       const overview = calculatePortfolioOverview(tokensWithValues, positions);
@@ -1007,54 +1004,18 @@ export default function PortfolioPage() {
                     <CardTitle>Transaction History</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {transactions.length === 0 ? (
-                      <div className="text-center py-8">
-                        <p className="text-gray-300 mb-4">No transactions found</p>
-                        <p className="text-sm text-gray-400">
-                          Start trading to see your transaction history
-                        </p>
+                    <div className="text-center py-12">
+                      <div className="mb-4">
+                        <BarChart3 className="h-16 w-16 text-gray-600 mx-auto" />
                       </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {transactions.map((tx, index) => (
-                          <div key={index} className="flex items-center justify-between p-4 bg-gray-800 rounded-lg">
-                            <div className="flex items-center space-x-3">
-                              <div
-                                className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                                  tx.type === "swap"
-                                    ? "bg-blue-500"
-                                    : tx.type === "add_liquidity"
-                                      ? "bg-green-500"
-                                      : "bg-red-500"
-                                }`}
-                              >
-                                {tx.type === "swap" ? (
-                                  <ArrowUpDown className="h-4 w-4 text-white" />
-                                ) : tx.type === "add_liquidity" ? (
-                                  <Droplets className="h-4 w-4 text-white" />
-                                ) : (
-                                  <Droplets className="h-4 w-4 text-white" />
-                                )}
-                              </div>
-                              <div>
-                                <div className="font-semibold">
-                                  {tx.type === "swap"
-                                    ? `Swap ${tx.from} → ${tx.to}`
-                                    : tx.type === "add_liquidity"
-                                      ? `Add Liquidity to ${tx.pool}`
-                                      : `Remove Liquidity from ${tx.pool}`}
-                                </div>
-                                <div className="text-gray-400 text-sm">{tx.amount}</div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="font-semibold">{tx.value}</div>
-                              <div className="text-gray-400 text-sm">{tx.time}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                      <h3 className="text-xl font-semibold text-gray-300 mb-2">Coming Soon</h3>
+                      <p className="text-gray-400 mb-4">
+                        Transaction history tracking is currently under development
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        We're working on implementing comprehensive transaction tracking to help you monitor your trading activity and portfolio performance.
+                      </p>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
