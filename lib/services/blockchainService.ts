@@ -196,21 +196,40 @@ export const fetchUserLiquidityPositions = async (publicKey: string): Promise<Us
         });
 
         // Get user's liquidity position
-        const positionResult = await poolClient.get_user_liquidity_position({
-          user: publicKey
-        });
-
         let userBalance = BigInt(0);
         let userTokenA = BigInt(0);
         let userTokenB = BigInt(0);
 
-        if (positionResult && typeof positionResult === "object" && "result" in positionResult) {
-          const result = positionResult.result;
-          if (Array.isArray(result) && result.length === 3) {
-            userBalance = BigInt(result[0]);
-            userTokenA = BigInt(result[1]);
-            userTokenB = BigInt(result[2]);
+        try {
+          const positionResult = await poolClient.get_user_liquidity_position({
+            user: publicKey
+          });
+
+          if (positionResult && typeof positionResult === "object" && "result" in positionResult) {
+            const result = positionResult.result;
+            if (Array.isArray(result) && result.length === 3) {
+              userBalance = BigInt(result[0]);
+              userTokenA = BigInt(result[1]);
+              userTokenB = BigInt(result[2]);
+            }
           }
+        } catch (positionError) {
+          console.warn("get_user_liquidity_position failed, falling back to direct balance fetch:", positionError);
+          
+          // Fallback: Get LP token balance directly
+          const balanceResult = await poolClient.balance_of({
+            id: publicKey
+          });
+
+          if (balanceResult && typeof balanceResult === "object" && "result" in balanceResult) {
+            userBalance = BigInt(balanceResult.result || 0);
+          } else if (typeof balanceResult === "string" || typeof balanceResult === "number") {
+            userBalance = BigInt(balanceResult);
+          }
+          
+          // We can't get detailed token amounts without the position method
+          userTokenA = BigInt(0);
+          userTokenB = BigInt(0);
         }
 
         // Only include positions with LP tokens
