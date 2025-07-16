@@ -9,9 +9,14 @@ import { Toaster } from "@/components/ui/toaster"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "MemePump - Launch Your Meme Token",
+  title: "Cosmodex - Launch Your Meme Token",
   description: "The ultimate platform for creating, trading, and managing meme tokens with built-in liquidity pools.",
-    generator: 'v0.dev'
+  generator: 'v0.dev',
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({
