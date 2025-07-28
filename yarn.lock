@@ -2902,7 +2902,7 @@
   resolved "https://registry.npmjs.org/@stellar/js-xdr/-/js-xdr-3.1.2.tgz"
   integrity sha512-VVolPL5goVEIsvuGqDc5uiKxV03lzfWdvYg1KikvwheDmTBO68CKDji3bAZ/kppZrx5iTA8z3Ld5yuytcvhvOQ==
 
-"@stellar/stellar-base@^14.0.0", "@stellar/stellar-base@^14.0.0-rc.2":
+"@stellar/stellar-base@14.0.0-rc.2", "@stellar/stellar-base@^14.0.0-rc.2":
   version "14.0.0-rc.2"
   resolved "https://registry.yarnpkg.com/@stellar/stellar-base/-/stellar-base-14.0.0-rc.2.tgz#51251177f5a3b2023b99f0977aae17e2ecea1263"
   integrity sha512-jzDJANrh8hcW3yWikS0At6MWOmf2dCD2cwWS1o0nZLRDj3tFMCrIcOGmw9uB7Widomdu4DzKHetpgn+XB1prpg==
@@ -2914,7 +2914,7 @@
     buffer "^6.0.3"
     sha.js "^2.3.6"
 
-"@stellar/stellar-sdk@^14.0.0":
+"@stellar/stellar-sdk@14.0.0-rc.3":
   version "14.0.0-rc.3"
   resolved "https://registry.yarnpkg.com/@stellar/stellar-sdk/-/stellar-sdk-14.0.0-rc.3.tgz#f3410578a6609e852e57532c95d341edd478c401"
   integrity sha512-RI+8uPYAHvauuwmGNbofv9e6Q2LnUjdqUwRCBSN7ZCEWH48DA/bAL6u+X7+WcF13PHsZPeNlp5bHZ5xHbzXdYA==
