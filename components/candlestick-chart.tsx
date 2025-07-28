@@ -249,7 +249,7 @@ export const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickCh
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-96 bg-gray-800 rounded-lg flex items-center justify-center w-full">
+            <div className="h-72 bg-gray-800 rounded-lg flex items-center justify-center w-full">
               <div className="text-center">
                 <Activity className="h-8 w-8 text-gray-600 mx-auto mb-2 animate-pulse" />
                 <p className="text-gray-400">Loading historical data...</p>
@@ -310,9 +310,9 @@ export const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickCh
           <div className="relative w-full">
             <div className="overflow-x-auto w-full">
               <svg
-                viewBox={`0 0 900 400`}
+                viewBox={`0 0 900 300`}
                 width="100%"
-                height="400"
+                height="300"
                 className="bg-gray-800 rounded-lg w-full h-auto"
                 preserveAspectRatio="none"
               >
@@ -325,13 +325,13 @@ export const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickCh
                     <stop offset="100%" stopColor="#111827" stopOpacity="0.1" />
                   </linearGradient>
                 </defs>
-                <rect width="100%" height={320} fill="url(#chartGradient)" />
-                <rect width="100%" height={320} fill="url(#grid)" />
+                <rect width="100%" height={240} fill="url(#chartGradient)" />
+                <rect width="100%" height={240} fill="url(#grid)" />
                 
                 {candleData.map((candle, index) => {
                   const chartWidth = 880
-                  const chartHeight = 320
-                  const volumeHeight = 60
+                  const chartHeight = 240
+                  const volumeHeight = 40
                   const candleWidth = Math.max(3, chartWidth / candleData.length - 2) // Increased minimum width
                   const x = index * (candleWidth + 2) + candleWidth / 2 + 10 // Increased spacing
                   const isGreen = candle.close >= candle.open
@@ -412,7 +412,7 @@ export const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickCh
                           .slice(index - 4, index + 1)
                           .reduce((sum, c) => sum + c.close, 0) / 5;
                         
-                        const y = 10 + ((chartMetrics.maxPrice - sma) / chartMetrics.priceRange) * (320 - 20);
+                        const y = 10 + ((chartMetrics.maxPrice - sma) / chartMetrics.priceRange) * (240 - 20);
                         
                         return index === 4 ? `M ${x} ${y}` : `L ${x} ${y}`;
                       }).filter(Boolean).join(' ')}
@@ -428,7 +428,7 @@ export const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickCh
                 
                 {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => {
                   const price = chartMetrics.maxPrice - ratio * chartMetrics.priceRange
-                  const y = 10 + ratio * (320 - 20)
+                  const y = 10 + ratio * (240 - 20)
                   return (
                     <g key={index}>
                       <line x1="0" y1={y} x2="100%" y2={y} stroke="#374151" strokeWidth="0.5" opacity="0.2" />
@@ -439,7 +439,7 @@ export const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickCh
                   )
                 })}
                 
-                <text x="5" y={320 + 35} fill="#9ca3af" fontSize="11" fontFamily="system-ui" fontWeight="500">
+                <text x="5" y={240 + 35} fill="#9ca3af" fontSize="11" fontFamily="system-ui" fontWeight="500">
                   Volume
                 </text>
                 
@@ -454,7 +454,7 @@ export const CandlestickChart = forwardRef<CandlestickChartHandle, CandlestickCh
                       <text
                         key={index}
                         x={x}
-                        y={320 + 60 + 35}
+                        y={240 + 60 + 35}
                         fill="#9ca3af"
                         fontSize="10"
                         fontFamily="system-ui"
