@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { TrendingUp, TrendingDown, Search, Plus, Zap, BarChart3, ArrowUpDown, Loader2 } from "lucide-react"
+import { TrendingUp, TrendingDown, Search, Plus, Zap, BarChart3, ArrowUpDown, Loader2, Star, ExternalLink, Copy, Filter, Flame, Clock, Award } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { CandlestickChart } from "@/components/candlestick-chart"
@@ -183,6 +183,7 @@ export default function HomePage() {
   const [tokensLoaded, setTokensLoaded] = useState(false);
   const [selectedChartToken, setSelectedChartToken] = useState<DisplayToken | null>(null);
   const [filterTab, setFilterTab] = useState("all")
+  const [showChart, setShowChart] = useState(false);
   const router = useRouter()
   const { toast } = useToast()
 
@@ -900,383 +901,316 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-950 to-black">
-        <div className="absolute inset-0 bg-[url('/placeholder.svg?height=800&width=1200')] opacity-5"></div>
-        <div className="relative container mx-auto px-4 py-20">
-          <div className="text-center max-w-4xl mx-auto">
-            <h1 className="text-6xl font-bold mb-6 bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent">
-              Launch Your Meme Token
-            </h1>
-            <p className="text-xl text-gray-300 mb-8 leading-relaxed">
-              The ultimate platform for creating, trading, and managing meme tokens with built-in liquidity pools and
-              advanced DeFi features.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-              <Link href="/launch">
-                <Button
-                  size="lg"
-                  className="bg-green-500 hover:bg-green-600 text-black font-semibold px-8 py-3 w-full sm:w-auto"
-                >
-                  <Plus className="mr-2 h-5 w-5" />
-                  Launch Token
-                </Button>
-              </Link>
-              <Link href="/swap">
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="border-green-500 text-green-500 hover:bg-green-500 hover:text-black px-8 py-3 w-full sm:w-auto"
-                >
-                  <ArrowUpDown className="mr-2 h-5 w-5" />
-                  Start Trading
-                </Button>
-              </Link>
-              <Button
-                size="lg"
-                variant="ghost"
-                className="text-gray-300 hover:text-white px-8 py-3 w-full sm:w-auto"
-                onClick={() => setShowHowItWorks(true)}
-              >
-                How it Works
-              </Button>
-              {/* <Button
-                size="lg"
-                variant="outline"
-                className="border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-black px-8 py-3 w-full sm:w-auto"
-               
-              >
-                Test Toast
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-red-500 text-red-500 hover:bg-red-500 hover:text-black px-8 py-3 w-full sm:w-auto"
-               
-              >
-                Test Error Toast
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-yellow-500 text-yellow-500 hover:bg-yellow-500 hover:text-black px-8 py-3 w-full sm:w-auto"
-              >
-                Test Multiple Toasts
-              </Button>
-              */}
-            </div>
+      <div className="container mx-auto px-4 py-6">
+        {/* Stats Bar - DexScreener Style */}
+        <div className="flex items-center justify-between mb-6 p-4 bg-gray-900/50 border border-gray-800 rounded-lg">
+          <div className="flex items-center space-x-6 text-sm text-gray-400">
+            <span className="flex items-center">
+              <span className="text-green-500 font-semibold">{deployedTokens.length}</span>
+              <span className="ml-1">Tokens</span>
+            </span>
+            <span className="flex items-center">
+              <span className="text-blue-500 font-semibold">{aggregatedStats.totalVolume}</span>
+              <span className="ml-1">24h Volume</span>
+            </span>
+            <span className="flex items-center">
+              <span className="text-purple-500 font-semibold">{aggregatedStats.totalLiquidity}</span>
+              <span className="ml-1">Liquidity</span>
+            </span>
           </div>
-        </div>
-      </div>
-
-      {/* Stats Section */}
-      <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-green-500 mb-2">
-                {isLoadingTokens ? (
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto" />
-                ) : (
-                  deployedTokens.length
-                )}
-              </div>
-              <div className="text-gray-400">Tokens Launched</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-blue-500 mb-2">
-                {isLoadingTokens ? (
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto" />
-                ) : (
-                  aggregatedStats.totalVolume
-                )}
-              </div>
-              <div className="text-gray-400">Total Volume</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-purple-500 mb-2">
-                {isLoadingTokens ? (
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto" />
-                ) : (
-                  aggregatedStats.totalLiquidity
-                )}
-              </div>
-              <div className="text-gray-400">Total Liquidity</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-orange-500 mb-2">
-                {isLoadingTokens ? (
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto" />
-                ) : (
-                  realTokens.filter(token => token.trending).length
-                )}
-              </div>
-              <div className="text-gray-400">Trending Tokens</div>
-            </CardContent>
-          </Card>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-gray-400 hover:text-white"
+            onClick={() => setShowHowItWorks(true)}
+          >
+            How it Works
+          </Button>
         </div>
 
-        {/* Featured Token Chart */}
-        <div className="mb-12">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-center flex-1">
-              {selectedChartToken ? `${selectedChartToken.name} (${selectedChartToken.symbol}) Live Chart` : "Featured Token Live Chart"}
-            </h2>
-            {realTokens.length > 0 && (
+        {/* Search and Filters - DexScreener Style */}
+        <div className="flex flex-col lg:flex-row gap-4 mb-6">
+          <div className="flex-1 flex gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search tokens..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 bg-gray-900 border-gray-700 text-white h-10"
+              />
+            </div>
+            <Tabs value={filterTab} onValueChange={setFilterTab} className="w-auto">
+              <TabsList className="bg-gray-900 border-gray-700 h-10">
+                <TabsTrigger value="all" className="flex items-center text-xs">
+                  All
+                </TabsTrigger>
+                <TabsTrigger value="trending" className="flex items-center text-xs">
+                  <Flame className="h-3 w-3 mr-1" />
+                  Trending
+                </TabsTrigger>
+                <TabsTrigger value="new" className="flex items-center text-xs">
+                  <Clock className="h-3 w-3 mr-1" />
+                  New
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={showChart ? "default" : "outline"}
+              onClick={() => setShowChart(!showChart)}
+              className={showChart ? "bg-green-500 text-black" : "border-gray-600 text-gray-300"}
+            >
+              <BarChart3 className="h-4 w-4 mr-1" />
+              Chart
+            </Button>
+            {realTokens.length > 0 && showChart && (
               <Button
-                variant="outline"
                 size="sm"
+                variant="outline"
                 onClick={refreshChartToken}
-                className="ml-4 border-gray-600 text-gray-300 hover:border-green-500 hover:text-green-500"
+                className="border-gray-600 text-gray-300 hover:border-green-500 hover:text-green-500"
               >
-                <Loader2 className="h-4 w-4 mr-2" />
-                Refresh Chart
+                <Loader2 className="h-4 w-4" />
               </Button>
             )}
           </div>
-          {selectedChartToken ? (
-            <CandlestickChart 
-              tokenSymbol={selectedChartToken.symbol} 
-              tokenData={selectedChartToken}
-              timeframe="1d" 
-              onTimeframeChange={() => {}} 
-            />
-          ) : (
-            <Card className="bg-gray-900 border-gray-800">
-              <CardContent className="p-6">
-                <div className="h-96 bg-gray-800 rounded-lg flex items-center justify-center">
-                  <div className="text-center">
-                    {isLoadingTokens ? (
-                      <>
-                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-green-500" />
-                        <p className="text-gray-400">Loading live chart data...</p>
-                      </>
-                    ) : realTokens.length === 0 ? (
-                      <>
-                        <p className="text-gray-400 mb-4">No tokens available for chart display.</p>
-                        <Link href="/launch">
-                          <Button className="bg-green-500 hover:bg-green-600 text-black">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Launch Your First Token
-                          </Button>
-                        </Link>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-gray-400 mb-4">No tokens with valid chart data found.</p>
-                        <Button 
-                          onClick={refreshChartToken}
-                          className="bg-green-500 hover:bg-green-600 text-black"
-                        >
-                          <Loader2 className="mr-2 h-4 w-4" />
-                          Try Again
-                        </Button>
-                      </>
-                    )}
+        </div>
+
+        {/* Chart Section - Collapsible */}
+        {showChart && (
+          <div className="mb-6">
+            {selectedChartToken ? (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <Image
+                      src={selectedChartToken.image || "/placeholder.svg"}
+                      alt={selectedChartToken.name}
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                    />
+                    <div>
+                      <h3 className="font-semibold">{selectedChartToken.name}</h3>
+                      <p className="text-sm text-gray-400">{selectedChartToken.symbol}</p>
+                    </div>
+                    <div className="flex items-center space-x-4 text-sm">
+                      <span className="font-semibold">{selectedChartToken.price}</span>
+                      <span
+                        className={`font-semibold ${selectedChartToken.change.startsWith("+") ? "text-green-500" : "text-red-500"}`}
+                      >
+                        {selectedChartToken.change}
+                      </span>
+                    </div>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowChart(false)}
+                    className="border-gray-600 text-gray-400 hover:border-gray-500"
+                  >
+                    ×
+                  </Button>
                 </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* Search and Filter */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search tokens..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 bg-gray-900 border-gray-700 text-white"
-            />
-          </div>
-          <Tabs value={filterTab} onValueChange={setFilterTab} className="w-full sm:w-auto">
-            <TabsList className="bg-gray-900 border-gray-700 w-full sm:w-auto">
-              <TabsTrigger value="all" className="flex-1 sm:flex-none">
-                All Tokens
-              </TabsTrigger>
-              <TabsTrigger value="trending" className="flex-1 sm:flex-none">
-                Trending
-              </TabsTrigger>
-              <TabsTrigger value="new" className="flex-1 sm:flex-none">
-                New
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-
-        {/* Loading State */}
-        {isLoadingTokens && (
-          <div className="flex justify-center items-center py-12">
-            <div className="text-center">
-              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-green-500" />
-              <p className="text-gray-400">Loading tokens from blockchain...</p>
-            </div>
+                <CandlestickChart 
+                  tokenSymbol={selectedChartToken.symbol} 
+                  tokenData={selectedChartToken}
+                  timeframe="1d" 
+                  onTimeframeChange={() => {}} 
+                />
+              </div>
+            ) : (
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                <div className="text-center">
+                  {isLoadingTokens ? (
+                    <>
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3 text-green-500" />
+                      <p className="text-gray-400">Loading chart data...</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-gray-400 mb-3">No chart data available</p>
+                      <Button 
+                        size="sm"
+                        onClick={refreshChartToken}
+                        className="bg-green-500 hover:bg-green-600 text-black"
+                      >
+                        Try Again
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Token Grid */}
-        {!isLoadingTokens && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredTokens.map((token) => (
-              <Card
-                key={token.id}
-                className="bg-gray-900 border-gray-800 hover:border-green-500 transition-colors cursor-pointer"
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <Image
-                        src={token.image || "/placeholder.svg"}
-                        alt={token.name}
-                        width={48}
-                        height={48}
-                        className="rounded-full"
-                      />
-                      <div>
-                        <CardTitle className="text-lg">{token.name}</CardTitle>
-                        <p className="text-gray-400 text-sm">{token.symbol}</p>
+        {/* Token Table - DexScreener Style */}
+        <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+          {/* Table Header */}
+          <div className="border-b border-gray-800 bg-gray-900/50">
+            <div className="grid grid-cols-12 gap-4 px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">
+              <div className="col-span-4 lg:col-span-3">Token</div>
+              <div className="col-span-2 text-right">Price</div>
+              <div className="col-span-2 text-right">24h Change</div>
+              <div className="col-span-2 text-right hidden lg:block">Volume</div>
+              <div className="col-span-2 text-right hidden lg:block">Liquidity</div>
+              <div className="col-span-2 lg:col-span-1 text-right">Actions</div>
+            </div>
+          </div>
+
+          {/* Loading State */}
+          {isLoadingTokens && (
+            <div className="p-8 text-center">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3 text-green-500" />
+              <p className="text-gray-400">Loading tokens...</p>
+            </div>
+          )}
+
+          {/* Token Rows */}
+          {!isLoadingTokens && (
+            <div className="divide-y divide-gray-800">
+              {filteredTokens.map((token, index) => (
+                <div
+                  key={token.id}
+                  className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-gray-800/50 transition-colors group"
+                >
+                  {/* Token Info */}
+                  <div className="col-span-4 lg:col-span-3 flex items-center space-x-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-gray-500 w-6">{index + 1}</span>
+                      <Star className="h-3 w-3 text-gray-600 group-hover:text-yellow-400 cursor-pointer" />
+                    </div>
+                    <Image
+                      src={token.image || "/placeholder.svg"}
+                      alt={token.name}
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center space-x-2">
+                        <p className="font-medium truncate">{token.name}</p>
+                        {token.trending && (
+                          <Badge className="bg-red-500/20 text-red-400 text-xs px-1 py-0 h-4">
+                            <Flame className="h-2 w-2" />
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm text-gray-400">
+                        <span>{token.symbol}</span>
                         {'poolAddress' in token && token.poolAddress && (
-                          <div className="flex items-center space-x-1 mt-1">
-                            <span className="text-xs text-gray-500">
-                              {'isXlmPool' in token && token.isXlmPool ? "XLM Pool" : "USDC Pool"}
-                            </span>
-                            {'reserves' in token && token.reserves && token.reserves[0] > BigInt(0) && token.reserves[1] > BigInt(0) && (
-                              <span className="text-xs text-green-500">● Active</span>
-                            )}
-                          </div>
+                          <span className="text-xs">
+                            {'isXlmPool' in token && token.isXlmPool ? "XLM" : "USDC"}
+                          </span>
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-col items-end space-y-1">
-                    {token.trending && (
-                      <Badge className="bg-green-500 text-black">
-                        <TrendingUp className="h-3 w-3 mr-1" />
-                        Hot
-                      </Badge>
-                    )}
-                      {'poolAddress' in token && !token.poolAddress && (
-                        <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
-                          No Pool
-                        </Badge>
-                      )}
-                    </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Price</span>
-                      <span className="font-semibold">{token.price}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">24h Change</span>
-                      <span
-                        className={`font-semibold ${token.change.startsWith("+") ? "text-green-500" : "text-red-500"}`}
-                      >
-                        {token.change.startsWith("+") ? (
-                          <TrendingUp className="inline h-3 w-3 mr-1" />
-                        ) : (
-                          <TrendingDown className="inline h-3 w-3 mr-1" />
-                        )}
-                        {token.change}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Market Cap</span>
-                      <span className="font-semibold">{token.marketCap}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Volume</span>
-                      <span className="font-semibold">{token.volume}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Liquidity</span>
-                      <span className="font-semibold">{token.liquidity}</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Link href={`/token/${token.id}`} className="flex-1">
-                      <Button variant="outline" size="sm" className="w-full border-gray-700 hover:border-green-500">
-                        <BarChart3 className="h-4 w-4 mr-1" />
-                        View
-                      </Button>
-                    </Link>
-                    <Button
-                      size="sm"
-                      className="w-full bg-green-500 hover:bg-green-600 text-black flex-1"
-                      onClick={() => router.push(`/swap?from=${'isXlmPool' in token && token.isXlmPool ? "XLM" : "USDC"}&to=${token.symbol}`)}
-                    >
-                        <Zap className="h-4 w-4 mr-1" />
-                        Trade
-                      </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
 
-        {/* No Tokens State */}
-        {!isLoadingTokens && filteredTokens.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-400 mb-4">No tokens found matching your search.</p>
-            <Link href="/launch">
-              <Button className="bg-green-500 hover:bg-green-600 text-black">
-                <Plus className="mr-2 h-4 w-4" />
-                Launch Your First Token
-              </Button>
-            </Link>
-          </div>
-        )}
+                  {/* Price */}
+                  <div className="col-span-2 text-right">
+                    <p className="font-medium">{token.price}</p>
+                    <p className="text-xs text-gray-400">{token.marketCap}</p>
+                  </div>
+
+                  {/* 24h Change */}
+                  <div className="col-span-2 text-right">
+                    <span
+                      className={`font-medium flex items-center justify-end ${
+                        token.change.startsWith("+") ? "text-green-400" : "text-red-400"
+                      }`}
+                    >
+                      {token.change.startsWith("+") ? (
+                        <TrendingUp className="h-3 w-3 mr-1" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3 mr-1" />
+                      )}
+                      {token.change}
+                    </span>
+                  </div>
+
+                  {/* Volume (Hidden on mobile) */}
+                  <div className="col-span-2 text-right hidden lg:block">
+                    <p className="font-medium">{token.volume}</p>
+                  </div>
+
+                  {/* Liquidity (Hidden on mobile) */}
+                  <div className="col-span-2 text-right hidden lg:block">
+                    <p className="font-medium">{token.liquidity}</p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="col-span-2 lg:col-span-1 text-right">
+                    <div className="flex items-center justify-end space-x-1">
+                      <Link href={`/token/${token.id}`}>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-gray-400 hover:text-white">
+                          <BarChart3 className="h-3 w-3" />
+                        </Button>
+                      </Link>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0 text-green-400 hover:text-green-300"
+                        onClick={() => router.push(`/swap?from=${'isXlmPool' in token && token.isXlmPool ? "XLM" : "USDC"}&to=${token.symbol}`)}
+                      >
+                        <Zap className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* No Tokens State */}
+          {!isLoadingTokens && filteredTokens.length === 0 && (
+            <div className="p-8 text-center">
+              <p className="text-gray-400 mb-4">No tokens found matching your search.</p>
+              <Link href="/launch">
+                <Button className="bg-green-500 hover:bg-green-600 text-black">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Launch Your First Token
+                </Button>
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* How It Works Modal */}
       <Dialog open={showHowItWorks} onOpenChange={setShowHowItWorks}>
         <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-center text-xl">How it Works</DialogTitle>
+            <DialogTitle className="text-center text-xl">How CosmoDex Works</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <p className="text-center text-gray-300">
-              Our platform allows anyone to create tokens. All tokens created are fair-launch, meaning everyone has
-              equal access to buy and sell when the token is first created.
+              CosmoDex is a decentralized token launcher and DEX on Stellar. All tokens are fair-launch with equal access for everyone.
             </p>
             <div className="space-y-3">
-              <div>
-                <span className="font-semibold text-green-500">Step 1:</span> Pick a token that you like
+              <div className="flex items-start space-x-3">
+                <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-black text-sm font-bold">1</div>
+                <span className="text-sm">Launch your token with built-in liquidity pools</span>
               </div>
-              <div>
-                <span className="font-semibold text-green-500">Step 2:</span> Buy the token on the bonding curve
+              <div className="flex items-start space-x-3">
+                <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-black text-sm font-bold">2</div>
+                <span className="text-sm">Trade on our integrated DEX with real-time data</span>
               </div>
-              <div>
-                <span className="font-semibold text-green-500">Step 3:</span> Sell at any time to lock in your profits
-                or losses
+              <div className="flex items-start space-x-3">
+                <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-black text-sm font-bold">3</div>
+                <span className="text-sm">Monitor performance with advanced analytics</span>
               </div>
             </div>
-            <p className="text-xs text-gray-400 text-center">
-              By clicking this button you agree to the terms and conditions and certify that you are over 18 years old
-            </p>
             <Button
               className="w-full bg-green-500 hover:bg-green-600 text-black font-semibold"
               onClick={() => setShowHowItWorks(false)}
             >
-              I Understand
+              Get Started
             </Button>
-            <div className="text-center text-xs text-gray-500 space-x-2">
-              <span>privacy policy</span>
-              <span>|</span>
-              <span>terms of service</span>
-              <span>|</span>
-              <span>fees</span>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
