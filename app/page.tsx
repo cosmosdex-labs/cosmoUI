@@ -903,8 +903,8 @@ export default function HomePage() {
     <div className="min-h-screen bg-gray-950 text-white">
       <div className="container mx-auto px-4 py-6">
         {/* Stats Bar - DexScreener Style */}
-        <div className="flex items-center justify-between mb-6 p-4 bg-gray-900/50 border border-gray-800 rounded-lg">
-          <div className="flex items-center space-x-6 text-sm text-gray-400">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 p-4 bg-gray-900/50 border border-gray-800 rounded-lg gap-4">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-sm text-gray-400">
             <span className="flex items-center">
               <span className="text-green-500 font-semibold">{deployedTokens.length}</span>
               <span className="ml-1">Tokens</span>
@@ -921,7 +921,7 @@ export default function HomePage() {
           <Button
             variant="ghost"
             size="sm"
-            className="text-gray-400 hover:text-white"
+            className="text-gray-400 hover:text-white whitespace-nowrap"
             onClick={() => setShowHowItWorks(true)}
           >
             How it Works
@@ -929,9 +929,9 @@ export default function HomePage() {
         </div>
 
         {/* Search and Filters - DexScreener Style */}
-        <div className="flex flex-col lg:flex-row gap-4 mb-6">
-          <div className="flex-1 flex gap-4">
-            <div className="relative flex-1 max-w-md">
+        <div className="flex flex-col gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
                 placeholder="Search tokens..."
@@ -940,40 +940,41 @@ export default function HomePage() {
                 className="pl-10 bg-gray-900 border-gray-700 text-white h-10"
               />
             </div>
-            <Tabs value={filterTab} onValueChange={setFilterTab} className="w-auto">
-              <TabsList className="bg-gray-900 border-gray-700 h-10">
-                <TabsTrigger value="all" className="flex items-center text-xs">
+            <Tabs value={filterTab} onValueChange={setFilterTab} className="w-full sm:w-auto">
+              <TabsList className="bg-gray-900 border-gray-700 h-10 w-full sm:w-auto">
+                <TabsTrigger value="all" className="flex items-center text-xs flex-1 sm:flex-none">
                   All
                 </TabsTrigger>
-                <TabsTrigger value="trending" className="flex items-center text-xs">
+                <TabsTrigger value="trending" className="flex items-center text-xs flex-1 sm:flex-none">
                   <Flame className="h-3 w-3 mr-1" />
                   Trending
                 </TabsTrigger>
-                <TabsTrigger value="new" className="flex items-center text-xs">
+                <TabsTrigger value="new" className="flex items-center text-xs flex-1 sm:flex-none">
                   <Clock className="h-3 w-3 mr-1" />
                   New
                 </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             <Button
               size="sm"
               variant={showChart ? "default" : "outline"}
               onClick={() => setShowChart(!showChart)}
-              className={showChart ? "bg-green-500 text-black" : "border-gray-600 text-gray-300"}
+              className={`${showChart ? "bg-green-500 text-black" : "border-gray-600 text-gray-300"} w-full sm:w-auto`}
             >
               <BarChart3 className="h-4 w-4 mr-1" />
-              Chart
+              {showChart ? "Hide Chart" : "Show Chart"}
             </Button>
             {realTokens.length > 0 && showChart && (
               <Button
                 size="sm"
                 variant="outline"
                 onClick={refreshChartToken}
-                className="border-gray-600 text-gray-300 hover:border-green-500 hover:text-green-500"
+                className="border-gray-600 text-gray-300 hover:border-green-500 hover:text-green-500 w-full sm:w-auto"
               >
-                <Loader2 className="h-4 w-4" />
+                <Loader2 className="h-4 w-4 mr-1" />
+                Refresh
               </Button>
             )}
           </div>
@@ -983,24 +984,24 @@ export default function HomePage() {
         {showChart && (
           <div className="mb-6">
             {selectedChartToken ? (
-              <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-3">
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3 sm:gap-0">
+                  <div className="flex items-center space-x-3 min-w-0 flex-1">
                     <Image
                       src={selectedChartToken.image || "/placeholder.svg"}
                       alt={selectedChartToken.name}
-                      width={32}
-                      height={32}
-                      className="rounded-full"
+                      width={24}
+                      height={24}
+                      className="rounded-full sm:w-8 sm:h-8 flex-shrink-0"
                     />
-                    <div>
-                      <h3 className="font-semibold">{selectedChartToken.name}</h3>
-                      <p className="text-sm text-gray-400">{selectedChartToken.symbol}</p>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-sm sm:text-base truncate">{selectedChartToken.name}</h3>
+                      <p className="text-xs sm:text-sm text-gray-400">{selectedChartToken.symbol}</p>
                     </div>
-                    <div className="flex items-center space-x-4 text-sm">
-                      <span className="font-semibold">{selectedChartToken.price}</span>
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center space-y-1 sm:space-y-0 sm:space-x-4 text-sm">
+                      <span className="font-semibold text-sm sm:text-base">{selectedChartToken.price}</span>
                       <span
-                        className={`font-semibold ${selectedChartToken.change.startsWith("+") ? "text-green-500" : "text-red-500"}`}
+                        className={`font-semibold text-xs sm:text-sm ${selectedChartToken.change.startsWith("+") ? "text-green-500" : "text-red-500"}`}
                       >
                         {selectedChartToken.change}
                       </span>
@@ -1010,9 +1011,9 @@ export default function HomePage() {
                     size="sm"
                     variant="outline"
                     onClick={() => setShowChart(false)}
-                    className="border-gray-600 text-gray-400 hover:border-gray-500"
+                    className="border-gray-600 text-gray-400 hover:border-gray-500 w-full sm:w-auto"
                   >
-                    ×
+                    × Close
                   </Button>
                 </div>
                 <CandlestickChart 
@@ -1023,20 +1024,20 @@ export default function HomePage() {
                 />
               </div>
             ) : (
-              <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 sm:p-6">
                 <div className="text-center">
                   {isLoadingTokens ? (
                     <>
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3 text-green-500" />
-                      <p className="text-gray-400">Loading chart data...</p>
+                      <p className="text-gray-400 text-sm sm:text-base">Loading chart data...</p>
                     </>
                   ) : (
                     <>
-                      <p className="text-gray-400 mb-3">No chart data available</p>
+                      <p className="text-gray-400 mb-3 text-sm sm:text-base">No chart data available</p>
                       <Button 
                         size="sm"
                         onClick={refreshChartToken}
-                        className="bg-green-500 hover:bg-green-600 text-black"
+                        className="bg-green-500 hover:bg-green-600 text-black w-full sm:w-auto"
                       >
                         Try Again
                       </Button>
@@ -1052,19 +1053,19 @@ export default function HomePage() {
         <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
           {/* Table Header */}
           <div className="border-b border-gray-800 bg-gray-900/50">
-            <div className="grid grid-cols-12 gap-4 px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">
-              <div className="col-span-4 lg:col-span-3">Token</div>
-              <div className="col-span-2 text-right">Price</div>
-              <div className="col-span-2 text-right">24h Change</div>
+            <div className="grid grid-cols-12 gap-2 sm:gap-4 px-2 sm:px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">
+              <div className="col-span-5 sm:col-span-4 lg:col-span-3">Token</div>
+              <div className="col-span-3 sm:col-span-2 text-right">Price</div>
+              <div className="col-span-2 text-right hidden sm:block">24h Change</div>
               <div className="col-span-2 text-right hidden lg:block">Volume</div>
               <div className="col-span-2 text-right hidden lg:block">Liquidity</div>
-              <div className="col-span-2 lg:col-span-1 text-right">Actions</div>
+              <div className="col-span-4 sm:col-span-4 lg:col-span-1 text-right">Actions</div>
             </div>
           </div>
 
           {/* Loading State */}
           {isLoadingTokens && (
-            <div className="p-8 text-center">
+            <div className="p-4 sm:p-8 text-center">
               <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3 text-green-500" />
               <p className="text-gray-400">Loading tokens...</p>
             </div>
@@ -1076,34 +1077,37 @@ export default function HomePage() {
               {filteredTokens.map((token, index) => (
                 <div
                   key={token.id}
-                  className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-gray-800/50 transition-colors group"
+                  className="grid grid-cols-12 gap-2 sm:gap-4 px-2 sm:px-4 py-3 hover:bg-gray-800/50 transition-colors group"
                 >
                   {/* Token Info */}
-                  <div className="col-span-4 lg:col-span-3 flex items-center space-x-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-gray-500 w-6">{index + 1}</span>
-                      <Star className="h-3 w-3 text-gray-600 group-hover:text-yellow-400 cursor-pointer" />
+                  <div className="col-span-5 sm:col-span-4 lg:col-span-3 flex items-center space-x-2 sm:space-x-3 min-w-0">
+                    <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
+                      <span className="text-xs text-gray-500 w-4 sm:w-6 text-center">{index + 1}</span>
+                      <Star className="h-3 w-3 text-gray-600 group-hover:text-yellow-400 cursor-pointer hidden sm:block" />
                     </div>
                     <Image
                       src={token.image || "/placeholder.svg"}
                       alt={token.name}
-                      width={32}
-                      height={32}
-                      className="rounded-full"
+                      width={24}
+                      height={24}
+                      className="rounded-full sm:w-8 sm:h-8 flex-shrink-0"
                     />
-                    <div className="min-w-0">
-                      <div className="flex items-center space-x-2">
-                        <p className="font-medium truncate">{token.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center space-x-1 sm:space-x-2">
+                        <p className="font-medium truncate text-sm sm:text-base">{token.name}</p>
                         {token.trending && (
-                          <Badge className="bg-red-500/20 text-red-400 text-xs px-1 py-0 h-4">
+                          <Badge className="bg-red-500/20 text-red-400 text-xs px-1 py-0 h-4 hidden sm:inline-flex">
                             <Flame className="h-2 w-2" />
                           </Badge>
                         )}
                       </div>
-                      <div className="flex items-center space-x-2 text-sm text-gray-400">
+                      <div className="flex items-center space-x-1 sm:space-x-2 text-xs sm:text-sm text-gray-400">
                         <span>{token.symbol}</span>
+                        {token.trending && (
+                          <Flame className="h-2 w-2 text-red-400 sm:hidden" />
+                        )}
                         {'poolAddress' in token && token.poolAddress && (
-                          <span className="text-xs">
+                          <span className="text-xs hidden sm:inline">
                             {'isXlmPool' in token && token.isXlmPool ? "XLM" : "USDC"}
                           </span>
                         )}
@@ -1112,13 +1116,28 @@ export default function HomePage() {
                   </div>
 
                   {/* Price */}
-                  <div className="col-span-2 text-right">
-                    <p className="font-medium">{token.price}</p>
-                    <p className="text-xs text-gray-400">{token.marketCap}</p>
+                  <div className="col-span-3 sm:col-span-2 text-right">
+                    <p className="font-medium text-sm sm:text-base">{token.price}</p>
+                    <p className="text-xs text-gray-400 hidden sm:block">{token.marketCap}</p>
+                    {/* Show change on mobile under price */}
+                    <div className="sm:hidden">
+                      <span
+                        className={`font-medium text-xs flex items-center justify-end ${
+                          token.change.startsWith("+") ? "text-green-400" : "text-red-400"
+                        }`}
+                      >
+                        {token.change.startsWith("+") ? (
+                          <TrendingUp className="h-2 w-2 mr-1" />
+                        ) : (
+                          <TrendingDown className="h-2 w-2 mr-1" />
+                        )}
+                        {token.change}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* 24h Change */}
-                  <div className="col-span-2 text-right">
+                  {/* 24h Change (Hidden on mobile) */}
+                  <div className="col-span-2 text-right hidden sm:block">
                     <span
                       className={`font-medium flex items-center justify-end ${
                         token.change.startsWith("+") ? "text-green-400" : "text-red-400"
@@ -1133,18 +1152,18 @@ export default function HomePage() {
                     </span>
                   </div>
 
-                  {/* Volume (Hidden on mobile) */}
+                  {/* Volume (Hidden on mobile and tablet) */}
                   <div className="col-span-2 text-right hidden lg:block">
                     <p className="font-medium">{token.volume}</p>
                   </div>
 
-                  {/* Liquidity (Hidden on mobile) */}
+                  {/* Liquidity (Hidden on mobile and tablet) */}
                   <div className="col-span-2 text-right hidden lg:block">
                     <p className="font-medium">{token.liquidity}</p>
                   </div>
 
                   {/* Actions */}
-                  <div className="col-span-2 lg:col-span-1 text-right">
+                  <div className="col-span-4 sm:col-span-4 lg:col-span-1 text-right">
                     <div className="flex items-center justify-end space-x-1">
                       <Link href={`/token/${token.id}`}>
                         <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-gray-400 hover:text-white">
@@ -1159,6 +1178,13 @@ export default function HomePage() {
                       >
                         <Zap className="h-3 w-3" />
                       </Button>
+                      {/* Mobile: Show additional info button */}
+                      <div className="sm:hidden">
+                        <div className="text-xs text-gray-400 text-right">
+                          <div>{token.volume}</div>
+                          <div>{token.liquidity}</div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1168,10 +1194,10 @@ export default function HomePage() {
 
           {/* No Tokens State */}
           {!isLoadingTokens && filteredTokens.length === 0 && (
-            <div className="p-8 text-center">
+            <div className="p-4 sm:p-8 text-center">
               <p className="text-gray-400 mb-4">No tokens found matching your search.</p>
               <Link href="/launch">
-                <Button className="bg-green-500 hover:bg-green-600 text-black">
+                <Button className="bg-green-500 hover:bg-green-600 text-black w-full sm:w-auto">
                   <Plus className="mr-2 h-4 w-4" />
                   Launch Your First Token
                 </Button>

@@ -73,7 +73,9 @@ export function Navbar() {
 
           {/* Right Section */}
           <div className="flex items-center space-x-3">
-            <ConnectButton />
+            <div className="hidden lg:block">
+              <ConnectButton />
+            </div>
 
             {/* Mobile Navigation */}
             <Sheet open={isOpen} onOpenChange={setIsOpen}>
@@ -87,29 +89,40 @@ export function Navbar() {
                 </Button>
               </SheetTrigger>
               <SheetContent side="right" className="bg-gray-950/95 backdrop-blur-xl border-gray-800/50 w-80">
-                <div className="flex flex-col space-y-2 mt-8">
-                  {navItems.map((item) => {
-                    const isActive = pathname === item.href
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
-                          isActive
-                            ? "text-white bg-gray-800/50 border-l-2 border-emerald-400"
-                            : "text-gray-300 hover:text-white hover:bg-gray-800/30"
-                        }`}
-                        onClick={() => setIsOpen(false)}
-                      >
-                        {item.icon && (
-                          <item.icon className={`h-4 w-4 transition-colors duration-200 ${
-                            isActive ? "text-emerald-400" : "text-gray-400"
-                          }`} />
-                        )}
-                        <span>{item.label}</span>
-                      </Link>
-                    )
-                  })}
+                <div className="flex flex-col space-y-4 mt-8">
+                  {/* Connect Button in Mobile Menu */}
+                  <div className="px-4">
+                    <ConnectButton />
+                  </div>
+                  
+                  {/* Divider */}
+                  <div className="border-t border-gray-800/50 my-2"></div>
+                  
+                  {/* Navigation Items */}
+                  <div className="flex flex-col space-y-2">
+                    {navItems.map((item) => {
+                      const isActive = pathname === item.href
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                            isActive
+                              ? "text-white bg-gray-800/50 border-l-2 border-emerald-400"
+                              : "text-gray-300 hover:text-white hover:bg-gray-800/30"
+                          }`}
+                          onClick={() => setIsOpen(false)}
+                        >
+                          {item.icon && (
+                            <item.icon className={`h-4 w-4 transition-colors duration-200 ${
+                              isActive ? "text-emerald-400" : "text-gray-400"
+                            }`} />
+                          )}
+                          <span>{item.label}</span>
+                        </Link>
+                      )
+                    })}
+                  </div>
                 </div>
               </SheetContent>
             </Sheet>
